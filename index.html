@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Hello wasm-pack!</title>
+  </head>
+  <body>
+    <noscript>This page contains webassembly and javascript content, please enable javascript in your browser.</noscript>
+	<script src="pkg/moksha_wgpu.js"></script>
+	<script>
+		(async () =>{
+			let wasm = await wasm_bindgen('pkg/moksha_wgpu_bg.wasm');
+			wasm.run();
+		})();
+	</script>
+  </body>
+</html>
+
