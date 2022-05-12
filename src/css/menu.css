@@ -1,0 +1,37 @@
+button {
+  cursor: pointer;
+  color: var(--fg);
+  border: none;
+  background: rgba(255,255,255,0.2);
+  backdrop-filter: blur(10px);
+  border-radius: var(--rad);
+  padding: var(--pad);
+}
+
+.background {
+  display: none;
+  flex-direction: column;
+  padding: calc(var(--pad) * 4);
+  box-sizing: border-box;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  height: 100vh;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(10px);
+}
+
+.background > div:first-child {
+  display: flex;
+  flex-direction: column;
+  justify-items: center;
+  align-items: center;
+}
+
+.shown {
+  display: flex;
+}
+
+.counter {
+  margin-left: 0.5em;
+}

@@ -1,18 +1,22 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8">
+    <meta charset="utf-8" />
     <title>Hello wasm-pack!</title>
+    <link rel="icon" href="src/img/icon.png"/>
   </head>
   <body>
-    <noscript>This page contains webassembly and javascript content, please enable javascript in your browser.</noscript>
-	<script src="pkg/moksha_wgpu.js"></script>
-	<script>
-		(async () =>{
-			let wasm = await wasm_bindgen('pkg/moksha_wgpu_bg.wasm');
-			wasm.run();
-		})();
-	</script>
+    <noscript>
+      The entire app is a WASM modules. Nothing can be rendered without it!
+      Enable JS/WASM settings on your browser.
+    </noscript
+    >
+    <script src="pkg/wgpu_test.js"></script>
+    <script>
+      (async () => {
+        let wasm = await wasm_bindgen('pkg/wgpu_test_bg.wasm');
+        wasm.run();
+      })();
+    </script>
   </body>
 </html>
-
