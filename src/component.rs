@@ -14,7 +14,7 @@ type Handlers<T> = HashMap<String, Rc<(Box<dyn Fn(&T, Event) -> Option<T>>, Vec<
 type Closures = HashMap<String, Closure<dyn FnMut(Event)>>;
 type DirtyFragments = Rc<RefCell<Vec<String>>>;
 
-pub struct Component<T: Clone + 'static> {
+pub struct Component<T> {
   state: Rc<RefCell<T>>,
   el: Element,
   dirty_fragments: DirtyFragments,
@@ -74,20 +74,20 @@ impl<T: Clone + 'static> Component<T> {
     handler: impl Fn(&T, Event) -> Option<T> + 'static,
     deps: &[&str],
   ) -> Self {
-      let s = self.state.clone();
-      let df = self.dirty_fragments.clone();
-      let deps: Vec<String> = deps.iter().map(|e|e.to_string()).collect();
-      self.closures.insert(
-        name.to_string(),
-        Closure::wrap(Box::new(move |e| {
-          let mut dirty_fragments = df.borrow_mut();
-          let new_state = handler(&s.borrow(), e);
-          if let Some(state) = new_state {
-            *s.borrow_mut() = state;
-          }
-          dirty_fragments.extend_from_slice(&deps[..]);
-        }) as Box<dyn FnMut(Event)>),
-      );
+    let s = self.state.clone();
+    let df = self.dirty_fragments.clone();
+    let deps: Vec<String> = deps.iter().map(|e| e.to_string()).collect();
+    self.closures.insert(
+      name.to_string(),
+      Closure::wrap(Box::new(move |e| {
+        let mut dirty_fragments = df.borrow_mut();
+        let new_state = handler(&s.borrow(), e);
+        if let Some(state) = new_state {
+          *s.borrow_mut() = state;
+        }
+        dirty_fragments.extend_from_slice(&deps[..]);
+      }) as Box<dyn FnMut(Event)>),
+    );
     self
   }
   pub fn build(mut self) -> Self {

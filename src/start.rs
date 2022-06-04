@@ -10,18 +10,42 @@ use maud::html;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use web_sys::{KeyboardEvent, MouseEvent as WebME, WheelEvent};
 
 #[derive(Clone)]
 struct Menu {
-  paused: bool,
   label: String,
   counter: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct MouseEvent {
+  pub dx: i32,
+  pub dy: i32,
+  pub ds: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Events {
+  pub paused: bool,
+  pub mouse: MouseEvent,
+}
+
+impl Events {
+  pub fn reset(&mut self) {
+    self.mouse = MouseEvent {
+      dx: 0,
+      dy: 0,
+      ds: 0.,
+    }
+  }
 }
 
 pub async fn start() -> Result<(), JsValue> {
   let renderer = Renderer::new().await;
   let scene = Scene::new(&renderer.device());
-  let viewport = Rc::new(Viewport::new());
+  let mut viewport = Rc::new(RefCell::new(Viewport::new()));
 
   let plane_geo = scene.primitive(Primitive::Plane(None));
   let plane = scene.mesh("Plane", plane_geo);
@@ -29,105 +53,136 @@ pub async fn start() -> Result<(), JsValue> {
   let circle_geo = scene.primitive(Primitive::Circle(None));
   let _circle = scene.mesh("Circle", circle_geo);
 
-  let shared_renderer = Rc::new(RefCell::new(renderer));
-  let entities = Rc::new(vec![plane]);
+  let renderer = Rc::new(RefCell::new(renderer));
+  let entities = vec![plane];
 
-  let _r = shared_renderer.clone();
-  let e = entities.clone();
-  let v = viewport.clone();
+  {
+    let renderer = renderer.clone();
+    let viewport = viewport.clone();
+    add_event_and_forget(&window(), "resize", move |_| {
+      renderer.borrow_mut().resize();
+      viewport.borrow_mut().resize();
+    });
+  }
 
-  let r = shared_renderer.clone();
-  add_event_and_forget(&window(), "resize", move |_| {
-    r.borrow_mut().resize();
-  });
-
-  let canvas = shared_renderer.borrow().canvas();
+  let canvas = Rc::new(renderer.borrow().canvas());
 
   add_style(include_str!("css/base.css"));
   body().append_child(&canvas)?;
 
-  let c = canvas.clone();
-  let menu = Component::new(
-    "my_menu",
-    Menu {
-      paused: true,
-      counter: 0,
-      label: "Resume".to_string(),
+  let events = Rc::new(RefCell::new(Events {
+    paused: true,
+    mouse: MouseEvent {
+      dx: 0,
+      dy: 0,
+      ds: 0.,
     },
-  )
-  .markup(|state| {
-    html! {
-      main {}
-      .background data-attrib="class" data-bind="shown" {
-        div {
-          h2 {"Main Menu"}
-          button data-on="click" data-handle="capture-cursor" {
-            span {(state.label)}
+  }));
+
+  let menu = {
+    let g = events.clone();
+    let events = events.clone();
+    let canvas = canvas.clone();
+    Component::new(
+      "my_menu",
+      Menu {
+        counter: 0,
+        label: "Resume".to_string(),
+      },
+    )
+    .markup(|state| {
+      html! {
+        main {}
+        .background data-attrib="class" data-bind="shown" {
+          div {
+            h2 {"Main Menu"}
+            button data-on="click" data-handle="capture-cursor" {
+              span {(state.label)}
+            }
+          }
+          button data-on="click" data-handle="count" {
+            span {"Count is"} span.counter data-fragment="counter" {}
           }
         }
-        button data-on="click" data-handle="count" {
-          span {"Count is"} span.counter data-fragment="counter" {}
-        }
       }
-    }
-  })
-  .style(include_str!("css/menu.css"))
-  .bind("shown", |state: &Menu| {
-    if state.paused {
-      "background shown".to_string()
-    } else {
-      "background".to_string()
-    }
-  })
-  .fragment("counter", |state: &Menu| {
-    html! {
-      (state.counter)
-    }
-  })
-  .handler(
-    "count",
-    move |state: &Menu, _| {
-      Some(Menu {
-        counter: state.counter + 1,
-        ..state.clone()
-      })
-    },
-    &["counter"],
-  )
-  .handler(
-    "capture-cursor",
-    move |state: &Menu, _| {
-      c.request_pointer_lock();
-      Some(Menu {
-        paused: false,
-        ..state.clone()
-      })
-    },
-    &["shown"],
-  )
-  .build();
+    })
+    .style(include_str!("css/menu.css"))
+    .bind("shown", move |state: &Menu| {
+      if g.borrow().paused {
+        "background shown".to_string()
+      } else {
+        "background".to_string()
+      }
+    })
+    .fragment("counter", |state: &Menu| {
+      html! {
+        (state.counter)
+      }
+    })
+    .handler(
+      "count",
+      move |state: &Menu, _| {
+        Some(Menu {
+          counter: state.counter + 1,
+          ..state.clone()
+        })
+      },
+      &["counter"],
+    )
+    .handler(
+      "capture-cursor",
+      move |state: &Menu, _| {
+        canvas.request_pointer_lock();
+        events.borrow_mut().paused = false;
+        None
+      },
+      &["shown"],
+    )
+    .build()
+  };
 
   body().append_child(menu.element())?;
 
   let menu = Rc::new(menu);
-  let m = menu.clone();
-  add_event_and_forget(&document(), "pointerlockchange", move |_| {
-    if document().pointer_lock_element() == None {
-      m.set_state(Menu {
-        paused: true,
-        ..m.state()
-      });
-      m.tag("shown");
-    }
-  });
+  {
+    let menu = menu.clone();
+    let events = events.clone();
+    add_event_and_forget(&document(), "pointerlockchange", move |_| {
+      if document().pointer_lock_element() == None {
+        events.borrow_mut().paused = true;
+        menu.tag("shown");
+      }
+    });
+  }
+  {
+    let events = events.clone();
+    add_event_and_forget(&canvas, "mousemove", move |e| {
+      //let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
+      let me = e.dyn_into::<WebME>().unwrap();
+      //if (key == "w") {
+      //events.borrow_mut().action = {
+      //}
+      events.borrow_mut().mouse.dx = me.movement_x();
+      events.borrow_mut().mouse.dy = me.movement_y();
+    });
+  }
+  {
+    let events = events.clone();
+    add_event_and_forget(&canvas, "wheel", move |e| {
+      let me = e.dyn_into::<WheelEvent>().unwrap();
+      //log::info!("{:?}", me.delta_y());
+      events.borrow_mut().mouse.ds = me.delta_y();
+    });
+  }
 
-  let r = shared_renderer.clone();
-  let m = menu.clone();
   on_animation_frame(move || {
-    r.borrow_mut()
-      .render(e.as_ref(), v.as_ref())
+    viewport.borrow_mut().update(&events.borrow());
+    renderer
+      .borrow_mut()
+      .render(&entities, &viewport.borrow())
       .unwrap_or_else(|_| error!("Render Error!"));
-    m.update();
+    menu.update();
+    events.borrow_mut().reset();
   });
 
   Ok(())

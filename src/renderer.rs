@@ -302,7 +302,7 @@ impl Renderer {
     self.canvas.set_height(height);
     self.surface.configure(&self.device, &self.config);
   }
-  pub fn render(&mut self, entities: &Vec<Mesh>, viewport: &Viewport) -> Result<(), SurfaceError> {
+  pub fn render(&self, entities: &Vec<Mesh>, viewport: &Viewport) -> Result<(), SurfaceError> {
     let output = self.surface.get_current_texture()?;
     let view = output
       .texture
@@ -312,7 +312,11 @@ impl Renderer {
       .create_command_encoder(&CommandEncoderDescriptor {
         label: Some("Render Encoder"),
       });
-
+    self.queue.write_buffer(
+      &self.viewport_buffer,
+      0,
+      bytemuck::cast_slice(&viewport.view_proj().as_slice()),
+    );
     {
       let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
         label: Some("Render Pass"),
@@ -336,11 +340,6 @@ impl Renderer {
         render_pass.draw_indexed(0..each.num_indices, 0, 0..1);
       }
     }
-    self.queue.write_buffer(
-      &self.viewport_buffer,
-      0,
-      bytemuck::cast_slice(&viewport.view_proj().as_slice()),
-    );
     self.queue.submit(iter::once(encoder.finish()));
     output.present();
     Ok(())

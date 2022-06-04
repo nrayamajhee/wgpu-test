@@ -25,6 +25,8 @@ features = [
   "Performance",
   "HtmlStyleElement",
   "KeyboardEvent",
+  "MouseEvent",
+  "WheelEvent",
   "NodeList",
   "ShadowRoot",
   "ShadowRootInit",
