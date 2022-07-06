@@ -8,6 +8,7 @@ case $1 in
 		cargo build --target wasm32-unknown-unknown --release -Z build-std=std,panic_abort
     wasm-bindgen --out-dir ./pkg --target no-modules \
     $CARGO_TARGET_DIR/wasm32-unknown-unknown/release/wgpu_test.wasm \
+    curl http://localhost:8000/mark-stale
 	;;
 	"s" | "serve")
 		python3 server.py

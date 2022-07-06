@@ -17,6 +17,14 @@
         let wasm = await wasm_bindgen('pkg/wgpu_test_bg.wasm');
         wasm.run();
       })();
+      setInterval(async () => {
+        const res = await fetch("http://localhost:8080/check-state")
+        const data = await res.text()
+        if (data == "stale") {
+            await fetch("http://localhost:8080/reset-stat")
+            location.reload()
+        }
+      }, 2000)
     </script>
   </body>
 </html>
