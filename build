@@ -2,23 +2,20 @@
 
 case $1 in
 	"b" | "build")
-    WGPU_POWER_PREF='high' \
-    WGPU_BACKEND='webgpu' \
-    RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals --cfg=web_sys_unstable_apis ' \
-		cargo build --target wasm32-unknown-unknown --release -Z build-std=std,panic_abort
+		cargo build --release
     wasm-bindgen --out-dir ./pkg --target no-modules \
-    $CARGO_TARGET_DIR/wasm32-unknown-unknown/release/wgpu_test.wasm \
-    curl http://localhost:8000/mark-stale
+    $CARGO_TARGET_DIR/wasm32-unknown-unknown/release/wgpu_test.wasm
+    curl http://localhost:8080/mark-stale
 	;;
 	"s" | "serve")
 		python3 server.py
 	;;
-	"w" | "watch")
-		cargo watch -w src -w Cargo.toml -s "$0 build"
-	;;
 	"d" | "document")
     cargo doc --document-private-items --open
 	;;
+	"w" | "watch")
+		cargo watch -w src -w Cargo.toml -s "$0 build"
+	;;
 	*)
-		echo "build [(b)uild | (s)erve | (w)atch | (d)ocument]"
+		echo "build [(b)uild | (s)erve | (d)ocument | (w)atch]"
 esac

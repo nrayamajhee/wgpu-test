@@ -19,7 +19,7 @@ class RequestHandler(SimpleHTTPRequestHandler):
         if self.path == "/mark-stale":
             session["state"] = "stale"
             self.respond("DONE!")
-        if self.path == "/reset-stale":
+        if self.path == "/reset-state":
             session["state"] = "latest"
             self.respond("DONE!")
 

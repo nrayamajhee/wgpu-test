@@ -319,6 +319,7 @@ impl Renderer {
     );
     {
       let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+
         label: Some("Render Pass"),
         color_attachments: &[Some(RenderPassColorAttachment {
           view: &view,

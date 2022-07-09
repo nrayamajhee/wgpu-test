@@ -60,8 +60,8 @@ pub async fn start() -> Result<(), JsValue> {
     let renderer = renderer.clone();
     let viewport = viewport.clone();
     add_event_and_forget(&window(), "resize", move |_| {
-      renderer.borrow_mut().resize();
-      viewport.borrow_mut().resize();
+      //viewport.borrow_mut().resize();
+      //renderer.borrow_mut().resize();
     });
   }
 
