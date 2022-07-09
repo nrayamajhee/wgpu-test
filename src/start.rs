@@ -96,7 +96,7 @@ pub async fn start() -> Result<(), JsValue> {
         .background data-attrib="class" data-bind="shown" {
           div {
             h2 {"Main Menu"}
-            button data-on="click" data-handle="capture-cursor" {
+            button data-on="click" data-handle="resume" {
               span {(state.label)}
             }
           }
@@ -106,6 +106,7 @@ pub async fn start() -> Result<(), JsValue> {
         }
       }
     })
+    .style(include_str!("css/base.css"))
     .style(include_str!("css/menu.css"))
     .bind("shown", move |state: &Menu| {
       if g.borrow().paused {
@@ -130,7 +131,7 @@ pub async fn start() -> Result<(), JsValue> {
       &["counter"],
     )
     .handler(
-      "capture-cursor",
+      "resume",
       move |state: &Menu, _| {
         canvas.request_pointer_lock();
         events.borrow_mut().paused = false;
@@ -174,9 +175,8 @@ pub async fn start() -> Result<(), JsValue> {
       events.borrow_mut().mouse.ds = me.delta_y();
     });
   }
-
-  on_animation_frame(move || {
-    viewport.borrow_mut().update(&events.borrow());
+  on_animation_frame(move |dt| {
+    viewport.borrow_mut().update(&events.borrow(), dt);
     renderer
       .borrow_mut()
       .render(&entities, &viewport.borrow())

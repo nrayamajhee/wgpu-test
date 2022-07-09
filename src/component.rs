@@ -110,9 +110,15 @@ impl<T: Clone + 'static> Component<T> {
       let dataset = el.dataset();
       let event_type = dataset.get("on").unwrap();
       let event_handler = dataset.get("handle").unwrap();
-      let closure = self.closures.get(&event_handler).unwrap();
-      el.add_event_listener_with_callback(&event_type, closure.as_ref().unchecked_ref())
-        .unwrap();
+      if let Some(closure) = self.closures.get(&event_handler) {
+        el.add_event_listener_with_callback(&event_type, closure.as_ref().unchecked_ref())
+          .unwrap();
+      } else {
+        log::error!(
+          "Event handler \"{}\" doesn't exit in the component",
+          event_handler
+        );
+      }
     }
   }
   fn update_frags(&self, root: Option<&str>) {

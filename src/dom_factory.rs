@@ -15,6 +15,13 @@ macro_rules! throw {(
   panic!()
 }}}
 
+pub fn now() -> f64 {
+  window()
+    .performance()
+    .expect("Performance isn't available")
+    .now()
+}
+
 pub fn add_event(
   target: &EventTarget,
   event_type: &str,
@@ -85,11 +92,14 @@ pub fn request_animation_frame(f: &Closure<dyn FnMut()>) -> i32 {
     .unwrap_or_else(|e| throw!("Can't request animation frame {:?}", e))
 }
 
-pub fn on_animation_frame(mut closure: impl FnMut() + 'static) {
+pub fn on_animation_frame(mut closure: impl FnMut(f64) + 'static) {
   let f = Rc::new(RefCell::new(None));
   let g = f.clone();
+  let mut then = now();
   let closure = Closure::wrap(Box::new(move || {
-    closure();
+    let dt = now() - then;
+    closure(dt);
+    then = now();
     request_animation_frame(f.borrow().as_ref().unwrap());
   }) as Box<dyn FnMut()>);
   *g.borrow_mut() = Some(closure);
@@ -112,15 +122,5 @@ pub fn create_shadow(name: &str) -> (Element, ShadowRoot) {
   let shadow = el
     .attach_shadow(&ShadowRootInit::new(ShadowRootMode::Open))
     .unwrap_or_else(|e| throw!("Can't attach shadow root:\n{:?}", e));
-  let stylesheets = query_els("link[rel=stylesheet]");
-  for i in 0..stylesheets.length() {
-    shadow
-      .append_child(
-        &stylesheets
-          .get(i)
-          .unwrap_or_else(|| throw!("QuerySelector is returning something other than Node!")),
-      )
-      .unwrap_or_else(|e| throw!("Cant' append stylesheet to shadow root!\n{:?}", e));
-  }
   (el, shadow)
 }

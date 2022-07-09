@@ -108,7 +108,7 @@ impl Renderer {
       .await
       .expect("Failed to create device");
 
-    let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
+    let swapchain_format = surface.get_supported_formats(&adapter)[0];
 
     let config = SurfaceConfiguration {
       usage: TextureUsages::RENDER_ATTACHMENT,
@@ -119,7 +119,7 @@ impl Renderer {
     };
 
     // Load the shaders from disk
-    let shader = device.create_shader_module(&ShaderModuleDescriptor {
+    let shader = device.create_shader_module(ShaderModuleDescriptor {
       label: Some("Shader"),
       source: ShaderSource::Wgsl(include_str!("wgsl/shader.wgsl").into()),
     });
@@ -253,14 +253,14 @@ impl Renderer {
       fragment: Some(FragmentState {
         module: &shader,
         entry_point: "fs_main",
-        targets: &[ColorTargetState {
+        targets: &[Some(ColorTargetState {
           format: swapchain_format,
           blend: Some(BlendState {
             color: BlendComponent::REPLACE,
             alpha: BlendComponent::REPLACE,
           }),
           write_mask: ColorWrites::ALL,
-        }],
+        })],
       }),
       primitive: PrimitiveState {
         topology: PrimitiveTopology::TriangleList,
@@ -320,14 +320,14 @@ impl Renderer {
     {
       let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
         label: Some("Render Pass"),
-        color_attachments: &[RenderPassColorAttachment {
+        color_attachments: &[Some(RenderPassColorAttachment {
           view: &view,
           resolve_target: None,
           ops: Operations {
             load: LoadOp::Clear(Color::BLACK),
             store: true,
           },
-        }],
+        })],
 
         depth_stencil_attachment: None,
       });

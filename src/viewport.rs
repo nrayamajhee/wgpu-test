@@ -22,7 +22,7 @@ impl Viewport {
     let view = Isometry3::look_at_rh(&eye, &target_pos.into(), &Vector3::y());
     Self { view, target, proj }
   }
-  pub fn update(&mut self, events: &Events) {
+  pub fn update(&mut self, events: &Events, dt: f64) {
     let forward = self.target.translation.vector - self.view.translation.vector;
     let forward_norm = forward.normalize();
     let forward_magnitude = forward_norm.magnitude();
@@ -38,14 +38,21 @@ impl Viewport {
     //let forward = self.target - self.eye;
     //let forward_magnitude = forward_norm.magnitude();
 
-    let speed = 0.001;
+    let speed = 0.0001;
     let axis = self.view.rotation * Vector3::y_axis();
-    let q_hor = UnitQuaternion::from_axis_angle(&axis, speed * events.mouse.dx as f32);
+    let d_rad = speed * events.mouse.dx as f32 * dt as f32;
+    let q_hor = UnitQuaternion::from_axis_angle(&axis, d_rad);
     let axis = self.view.rotation * Vector3::x_axis();
-    let q_ver = UnitQuaternion::from_axis_angle(&axis, speed * events.mouse.dy as f32);
+    let d_rad = speed * events.mouse.dy as f32 * dt as f32;
+    let q_ver = UnitQuaternion::from_axis_angle(&axis, d_rad);
     let delta_rot = q_hor * q_ver;
 
-    self.view.rotation *= delta_rot;
+    {
+      self.view.rotation *= delta_rot;
+      //self.view.translation.vector -= self.target.translation.vector;
+      //self.view.translation.vector = self.view.rotation * Vector3::new(0.,0.,2.);
+      //+ v.translation.vector;
+    }
 
     if events.mouse.dx != 0 {
       //let dir = if events.mouse.dx > 0 { -1. } else { 1. };
@@ -53,7 +60,7 @@ impl Viewport {
     }
   }
   pub fn view_proj(&self) -> Matrix4<f32> {
-    //Matrix4::from(self.proj) * Matrix4::look_at_rh(&self.eye, &self.target, &self.up)
+    //Matrix4::from(self.proj) * Matrix4::look_at_rh(&Point3::from_slice(self.view.translation.vector.as_slice()), &Point3::from(self.target.translation.vector.as_slice()), &(self.view.rotation * Vector3::y()))
     Matrix4::from(self.proj) * self.view.to_homogeneous()
   }
   pub fn resize(&mut self) {
