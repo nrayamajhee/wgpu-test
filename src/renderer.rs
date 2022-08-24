@@ -9,11 +9,11 @@ use std::rc::Rc;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
-  util::DeviceExt, Backends, BindGroup, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-  BindingType, BlendComponent, BlendState, Buffer, BufferAddress, BufferBindingType, BufferUsages,
-  Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Device, DeviceDescriptor,
-  Extent3d, Face, Features, FragmentState, FrontFace, ImageCopyTexture, ImageDataLayout,
-  IndexFormat, Instance, Limits, LoadOp, MultisampleState, Operations, Origin3d,
+  util::DeviceExt, Backends, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
+  BindGroupLayoutEntry, BindingType, BlendComponent, BlendState, Buffer, BufferAddress,
+  BufferBindingType, BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor,
+  Device, DeviceDescriptor, Extent3d, Face, Features, FragmentState, FrontFace, ImageCopyTexture,
+  ImageDataLayout, IndexFormat, Instance, Limits, LoadOp, MultisampleState, Operations, Origin3d,
   PipelineLayoutDescriptor, PolygonMode, PowerPreference, PresentMode, PrimitiveState,
   PrimitiveTopology, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
   RenderPipelineDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource,
@@ -29,9 +29,10 @@ pub struct Renderer {
   queue: Queue,
   config: SurfaceConfiguration,
   render_pipeline: RenderPipeline,
-  diffuse_bind_group: BindGroup,
+  texture_bind_group: BindGroup,
   viewport_buffer: Buffer,
-  viewport_bind_group: BindGroup,
+  model_buffer: Buffer,
+  model_view_proj_bind_group: BindGroup,
 }
 
 #[repr(C)]
@@ -85,7 +86,7 @@ impl Renderer {
     let (width, height) = get_window_dimension();
 
     let instance = Instance::new(Backends::BROWSER_WEBGPU);
-    let surface = unsafe { instance.create_surface_from_canvas(&canvas) };
+    let surface = instance.create_surface_from_canvas(&canvas);
     let adapter = instance
       .request_adapter(&RequestAdapterOptions {
         power_preference: PowerPreference::default(),
@@ -173,7 +174,7 @@ impl Renderer {
     let texture_bind_group_layout =
       device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
-          wgpu::BindGroupLayoutEntry {
+          BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
@@ -183,7 +184,7 @@ impl Renderer {
             },
             count: None,
           },
-          wgpu::BindGroupLayoutEntry {
+          BindGroupLayoutEntry {
             binding: 1,
             visibility: wgpu::ShaderStages::FRAGMENT,
             // This should match the filterable field of the
@@ -194,19 +195,19 @@ impl Renderer {
         ],
         label: Some("texture_bind_group_layout"),
       });
-    let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
       layout: &texture_bind_group_layout,
       entries: &[
-        wgpu::BindGroupEntry {
+        BindGroupEntry {
           binding: 0,
           resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
         },
-        wgpu::BindGroupEntry {
+        BindGroupEntry {
           binding: 1,
           resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
         },
       ],
-      label: Some("diffuse_bind_group"),
+      label: Some("texture_bind_group"),
     });
 
     let viewport_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -214,31 +215,57 @@ impl Renderer {
       contents: bytemuck::cast_slice(Matrix4::<f32>::identity().as_slice()),
       usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
-    let viewport_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-      entries: &[BindGroupLayoutEntry {
-        binding: 0,
-        visibility: ShaderStages::VERTEX,
-        ty: BindingType::Buffer {
-          ty: BufferBindingType::Uniform,
-          has_dynamic_offset: false,
-          min_binding_size: None,
+    let model_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+      label: Some("Model transformation Buffer"),
+      contents: bytemuck::cast_slice(Matrix4::<f32>::identity().as_slice()),
+      usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+    let model_view_proj_bind_group_layout =
+      device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        entries: &[
+          BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::VERTEX,
+            ty: BindingType::Buffer {
+              ty: BufferBindingType::Uniform,
+              has_dynamic_offset: false,
+              min_binding_size: None,
+            },
+            count: None,
+          },
+          BindGroupLayoutEntry {
+            binding: 1,
+            visibility: ShaderStages::VERTEX,
+            ty: BindingType::Buffer {
+              ty: BufferBindingType::Uniform,
+              has_dynamic_offset: false,
+              min_binding_size: None,
+            },
+            count: None,
+          },
+        ],
+        label: Some("model_view_proj_bind_group_layout"),
+      });
+    let model_view_proj_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+      layout: &&model_view_proj_bind_group_layout,
+      entries: &[
+        BindGroupEntry {
+          binding: 0,
+          resource: viewport_buffer.as_entire_binding(),
         },
-        count: None,
-      }],
-      label: Some("view_proj_bind_group_layout"),
+        BindGroupEntry {
+          binding: 1,
+          resource: model_buffer.as_entire_binding(),
+        },
+      ],
+      label: Some("model_view_proj_bind_group"),
     });
-    let viewport_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-      layout: &&viewport_bind_group_layout,
-      entries: &[wgpu::BindGroupEntry {
-        binding: 0,
-        resource: viewport_buffer.as_entire_binding(),
-      }],
-      label: Some("camera_bind_group"),
-    });
-
     let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
       label: Some("Render Pipeline Layout"),
-      bind_group_layouts: &[&texture_bind_group_layout, &viewport_bind_group_layout],
+      bind_group_layouts: &[
+        &model_view_proj_bind_group_layout,
+        &texture_bind_group_layout,
+      ],
       push_constant_ranges: &[],
     });
 
@@ -286,9 +313,10 @@ impl Renderer {
       config,
       canvas: Rc::new(canvas),
       render_pipeline,
-      diffuse_bind_group,
+      texture_bind_group,
       viewport_buffer,
-      viewport_bind_group,
+      model_buffer,
+      model_view_proj_bind_group,
     };
     log::info!("Renderer created!");
     s.resize();
@@ -319,7 +347,6 @@ impl Renderer {
     );
     {
       let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-
         label: Some("Render Pass"),
         color_attachments: &[Some(RenderPassColorAttachment {
           view: &view,
@@ -333,9 +360,14 @@ impl Renderer {
         depth_stencil_attachment: None,
       });
       render_pass.set_pipeline(&self.render_pipeline);
-      render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-      render_pass.set_bind_group(1, &self.viewport_bind_group, &[]);
+      render_pass.set_bind_group(0, &self.model_view_proj_bind_group, &[]);
+      render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
       for each in entities {
+        self.queue.write_buffer(
+          &self.model_buffer,
+          0,
+          bytemuck::cast_slice(&each.model.to_homogeneous().as_slice()),
+        );
         render_pass.set_vertex_buffer(0, each.vertex_buffer.slice(..));
         render_pass.set_index_buffer(each.index_buffer.slice(..), IndexFormat::Uint16);
         render_pass.draw_indexed(0..each.num_indices, 0, 0..1);

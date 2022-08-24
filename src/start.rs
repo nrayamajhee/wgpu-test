@@ -42,26 +42,33 @@ impl Events {
   }
 }
 
+use nalgebra::{UnitQuaternion, Vector3};
+
 pub async fn start() -> Result<(), JsValue> {
   let renderer = Renderer::new().await;
+  let viewport = Rc::new(RefCell::new(Viewport::new()));
+
   let scene = Scene::new(&renderer.device());
-  let mut viewport = Rc::new(RefCell::new(Viewport::new()));
 
   let plane_geo = scene.primitive(Primitive::Plane(None));
-  let plane = scene.mesh("Plane", plane_geo);
+  let mut plane = scene.mesh("Plane", plane_geo);
+  //plane.model.isometry.translation.vector = [1.,0.,0.].into();
+  //plane.model.isometry.rotation =
+  //UnitQuaternion::from_axis_angle(&Vector3::y_axis(), std::f32::consts::PI / 2.5);
 
   let circle_geo = scene.primitive(Primitive::Circle(None));
   let _circle = scene.mesh("Circle", circle_geo);
 
   let renderer = Rc::new(RefCell::new(renderer));
+
   let entities = vec![plane];
 
   {
     let renderer = renderer.clone();
     let viewport = viewport.clone();
     add_event_and_forget(&window(), "resize", move |_| {
-      //viewport.borrow_mut().resize();
-      //renderer.borrow_mut().resize();
+      viewport.borrow_mut().resize();
+      renderer.borrow_mut().resize();
     });
   }
 
@@ -150,9 +157,20 @@ pub async fn start() -> Result<(), JsValue> {
     let events = events.clone();
     add_event_and_forget(&document(), "pointerlockchange", move |_| {
       if document().pointer_lock_element() == None {
+        document().exit_pointer_lock();
         events.borrow_mut().paused = true;
         menu.tag("shown");
       }
+    });
+  }
+  {
+    let menu = menu.clone();
+    let events = events.clone();
+    add_event_and_forget(&document(), "pointerlockerror", move |_| {
+      // overcorrection needed for chrome
+      // chrome doesn't allow switching pointer lock within a second
+      events.borrow_mut().paused = true;
+      menu.tag("shown");
     });
   }
   {
@@ -166,6 +184,10 @@ pub async fn start() -> Result<(), JsValue> {
       events.borrow_mut().mouse.dx = me.movement_x();
       events.borrow_mut().mouse.dy = me.movement_y();
     });
+    add_event_and_forget(&document(), "keyup", move |e| {
+      e.prevent_default();
+      //log::warn!("KEYUP");
+    })
   }
   {
     let events = events.clone();
@@ -175,15 +197,19 @@ pub async fn start() -> Result<(), JsValue> {
       events.borrow_mut().mouse.ds = me.delta_y();
     });
   }
-  on_animation_frame(move |dt| {
-    viewport.borrow_mut().update(&events.borrow(), dt);
-    renderer
-      .borrow_mut()
-      .render(&entities, &viewport.borrow())
-      .unwrap_or_else(|_| error!("Render Error!"));
-    menu.update();
-    events.borrow_mut().reset();
-  });
+
+  {
+    let renderer = renderer.clone();
+    on_animation_frame(move |dt| {
+      menu.update();
+      viewport.borrow_mut().update(&events.borrow(), dt);
+      renderer
+        .borrow_mut()
+        .render(&entities, &viewport.borrow())
+        .unwrap_or_else(|_| error!("Render Error!"));
+      events.borrow_mut().reset();
+    });
+  }
 
   Ok(())
 }

@@ -4,6 +4,7 @@ use genmesh::{
   EmitTriangles, Triangulate, Vertex as V,
 };
 use log::info;
+use nalgebra::{Isometry3, Similarity3};
 use wgpu::{util::BufferInitDescriptor, Buffer, BufferUsages};
 use wgpu::{util::DeviceExt, Device};
 
@@ -20,6 +21,7 @@ pub struct Mesh {
   pub vertex_buffer: Buffer,
   pub index_buffer: Buffer,
   pub num_indices: u32,
+  pub model: Similarity3<f32>,
 }
 
 pub enum Primitive {
@@ -77,10 +79,12 @@ impl<'a> Scene<'a> {
         contents: bytemuck::cast_slice(&geometry.indices),
         usage: BufferUsages::INDEX,
       });
+    let model = Similarity3::identity();
     Mesh {
       vertex_buffer,
       index_buffer,
       num_indices: geometry.indices.len() as u32,
+      model,
     }
   }
 }

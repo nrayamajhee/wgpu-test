@@ -9,6 +9,10 @@ pub struct Viewport {
   proj: Perspective3<f32>,
 }
 
+const OPENGL_TO_WGPU: Matrix4<f32> = Matrix4::new(
+  1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0,
+);
+
 impl Viewport {
   pub fn new() -> Self {
     let (width, height) = get_window_dimension();
@@ -16,10 +20,7 @@ impl Viewport {
     target.translation.vector = [0., 0., 1.].into();
     let proj = Perspective3::new(width as f32 / height as f32, PI / 2., 0.1, 1000.);
     let eye = [0., 0., 2.].into();
-    let mut target = Isometry3::identity();
-    let target_pos = [0., 0., 0.];
-    target.translation = target_pos.into();
-    let view = Isometry3::look_at_rh(&eye, &target_pos.into(), &Vector3::y());
+    let view = Isometry3::look_at_rh(&eye, &target.translation.vector.into(), &Vector3::y());
     Self { view, target, proj }
   }
   pub fn update(&mut self, events: &Events, dt: f64) {
@@ -39,6 +40,7 @@ impl Viewport {
     //let forward_magnitude = forward_norm.magnitude();
 
     let speed = 0.0001;
+
     let axis = self.view.rotation * Vector3::y_axis();
     let d_rad = speed * events.mouse.dx as f32 * dt as f32;
     let q_hor = UnitQuaternion::from_axis_angle(&axis, d_rad);
@@ -46,11 +48,16 @@ impl Viewport {
     let d_rad = speed * events.mouse.dy as f32 * dt as f32;
     let q_ver = UnitQuaternion::from_axis_angle(&axis, d_rad);
     let delta_rot = q_hor * q_ver;
+    //log::info!("{}", dt);
 
     {
+      //self.view.translation.vector = self.target.translation.vector;
       self.view.rotation *= delta_rot;
-      //self.view.translation.vector -= self.target.translation.vector;
-      //self.view.translation.vector = self.view.rotation * Vector3::new(0.,0.,2.);
+      self.view.translation.vector = self
+        .view
+        .rotation
+        .transform_vector(&Vector3::new(0., 0., -2.));
+      //self.view.translation.vector = Vector3::new(0.,0.,-2.);
       //+ v.translation.vector;
     }
 
@@ -61,7 +68,7 @@ impl Viewport {
   }
   pub fn view_proj(&self) -> Matrix4<f32> {
     //Matrix4::from(self.proj) * Matrix4::look_at_rh(&Point3::from_slice(self.view.translation.vector.as_slice()), &Point3::from(self.target.translation.vector.as_slice()), &(self.view.rotation * Vector3::y()))
-    Matrix4::from(self.proj) * self.view.to_homogeneous()
+    OPENGL_TO_WGPU * Matrix4::from(self.proj) * self.view.to_homogeneous()
   }
   pub fn resize(&mut self) {
     let (width, height) = get_window_dimension();

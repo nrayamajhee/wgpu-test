@@ -172,7 +172,6 @@ impl<T: Clone + 'static> Component<T> {
     }
     for each in self.dirty_fragments.borrow().iter() {
       if !self.fragments.contains_key(each) {
-        log::info!("{}", each);
         let el = self
           .shadow_root()
           .query_selector(&format!("*[data-bind={}]", each))

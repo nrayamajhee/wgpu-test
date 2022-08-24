@@ -3,28 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <title>Hello wasm-pack!</title>
-    <link rel="icon" href="src/img/icon.png"/>
+    <link rel="icon" href="src/img/icon.png" />
   </head>
   <body>
     <noscript>
       The entire app is a WASM modules. Nothing can be rendered without it!
       Enable JS/WASM settings on your browser.
-    </noscript
-    >
+    </noscript>
     <script src="pkg/wgpu_test.js"></script>
     <script>
       (async () => {
-        let wasm = await wasm_bindgen('pkg/wgpu_test_bg.wasm');
+        let wasm = await wasm_bindgen("pkg/wgpu_test_bg.wasm");
         wasm.run();
       })();
-      setInterval(async () => {
-        const res = await fetch("http://localhost:8080/check-state")
-        const data = await res.text()
-        if (data == "stale") {
-            await fetch("http://localhost:8080/reset-state")
-            location.reload()
-        }
-      }, 2000)
     </script>
+    <script src="watch.js"></script>
   </body>
 </html>
