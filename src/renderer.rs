@@ -7,7 +7,11 @@ use nalgebra::Matrix4;
 use std::iter;
 use std::rc::Rc;
 use wasm_bindgen::JsCast;
-use web_sys::HtmlCanvasElement;
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{
+  GpuAdapter, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext, GpuDevice,
+  GpuTextureFormat, HtmlCanvasElement,
+};
 use wgpu::{
   util::DeviceExt, Backends, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
   BindGroupLayoutEntry, BindingType, BlendComponent, BlendState, Buffer, BufferAddress,
@@ -95,8 +99,6 @@ impl Renderer {
       })
       .await
       .expect("Failed to find an appropriate adapter");
-
-    // Create the logical device and command queue
     let (device, queue) = adapter
       .request_device(
         &DeviceDescriptor {
@@ -108,6 +110,29 @@ impl Renderer {
       )
       .await
       .expect("Failed to create device");
+
+    let context = canvas
+      .get_context("webgpu")
+      .unwrap()
+      .unwrap()
+      .dyn_into::<GpuCanvasContext>()
+      .unwrap();
+    let dev = JsFuture::from(
+      JsFuture::from(window().navigator().gpu().request_adapter())
+        .await
+        .unwrap()
+        .dyn_into::<GpuAdapter>()
+        .unwrap()
+        .request_device(),
+    )
+    .await
+    .unwrap()
+    .dyn_into::<GpuDevice>()
+    .unwrap();
+    let mut canvas_config = GpuCanvasConfiguration::new(&dev, GpuTextureFormat::Rgba8unorm);
+    canvas_config.alpha_mode(GpuCanvasAlphaMode::Premultiplied);
+    crate::logv(&canvas_config);
+    context.configure(&canvas_config);
 
     let swapchain_format = surface.get_supported_formats(&adapter)[0];
 

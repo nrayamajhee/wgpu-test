@@ -20,6 +20,7 @@ use log::Level;
 
 use rayon::prelude::*;
 use wasm_bindgen::prelude::*;
+use futures_channel::oneshot;
 
 #[wasm_bindgen]
 pub async fn run() -> Result<(), JsValue> {
@@ -31,10 +32,16 @@ pub async fn run() -> Result<(), JsValue> {
     )))
   });
 
-  let workers = RayonWorkers::new(None);
-  workers.run(move || {
-    let sum = (1..=1000).into_par_iter().sum::<usize>();
-    log::info!("Raypon par iter test: {:?}", sum);
-  });
+  // let workers = RayonWorkers::new(None);
+  // let (tx, rx) = oneshot::channel::<f64>();
+  // workers.run(move || {
+  //   let sum = (1..=1_000_000)
+  //     .into_par_iter()
+  //     .map(|e| f64::sqrt(e as f64))
+  //     .sum::<f64>();
+  //   drop(tx.send(sum));
+  // });
+  // let sum = rx.await.unwrap();
+  // log::info!("Raypon par iter test: {:?}", sum);
   start::start().await
 }

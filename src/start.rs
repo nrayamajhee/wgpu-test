@@ -1,6 +1,6 @@
 use crate::{
   component::Component,
-  dom_factory::{add_event_and_forget, add_style, body, document, on_animation_frame, window},
+  dom_factory::{add_event_and_forget, add_style, body, document, on_animation_frame, window, create_el},
   renderer::Renderer,
   scene::{Primitive, Scene},
   viewport::Viewport,
@@ -150,6 +150,9 @@ pub async fn start() -> Result<(), JsValue> {
   };
 
   body().append_child(menu.element())?;
+  let new_menu = create_el("p");
+  // body().append_child(menu.element())?;
+  body().append_child(&new_menu)?;
 
   let menu = Rc::new(menu);
   {

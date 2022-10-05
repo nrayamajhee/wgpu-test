@@ -14,20 +14,10 @@ use wasm_bindgen::JsCast;
 use web_sys::{DedicatedWorkerGlobalScope, MessageEvent};
 use web_sys::{ErrorEvent, Event, Worker};
 
-#[wasm_bindgen]
-extern "C" {
-  #[wasm_bindgen(js_namespace = console)]
-  pub fn log(s: &str);
-  #[wasm_bindgen]
-  pub fn alert(s: &str);
-  #[wasm_bindgen(js_namespace = console, js_name = log)]
-  fn logv(x: &JsValue);
-}
-
 pub struct RayonWorkers {
   concurrency: usize,
-  worker_pool: WorkerPool,
-  rayon_pool: Arc<ThreadPool>,
+  pub worker_pool: WorkerPool,
+  pub rayon_pool: Arc<ThreadPool>,
 }
 
 impl RayonWorkers {
@@ -58,14 +48,16 @@ impl RayonWorkers {
   pub fn concurrency(&self) -> usize {
     self.concurrency
   }
-  pub fn run<F: 'static + Fn() + Sync + Send>(&self, closure: F) {
+  pub fn run<OP, R>(&self, closure: OP)
+  where
+    OP: FnOnce() -> R + Send + 'static,
+    R: Send,
+  {
     let r_p = self.rayon_pool.clone();
     self
       .worker_pool
       .run(move || {
-        r_p.install(|| {
-          closure();
-        });
+        r_p.install(move || closure());
       })
       .unwrap();
   }
