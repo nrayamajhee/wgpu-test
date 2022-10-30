@@ -8,9 +8,10 @@ mod component;
 pub mod dom_factory;
 pub mod pool;
 mod renderer;
+mod mesh;
 mod scene;
 mod start;
-mod viewport;
+// mod viewport;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;

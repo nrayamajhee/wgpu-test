@@ -8,7 +8,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies.web-sys]
-version = "0.3.59"
+version = "0.3.60"
 features = [
   "Window",
   "Document",
@@ -34,35 +34,78 @@ features = [
   "Window",
   "DomStringMap",
   "Crypto",
-  "GpuDevice",
-  "GpuAdapter",
+  "GpuCanvasContext",
   "GpuCanvasConfiguration",
   "GpuCanvasAlphaMode",
-  "GpuTextureFormat"
+  "GpuIndexFormat",
+  "Gpu",
+  "GpuQueue",
+  "GpuAdapter",
+  "GpuDevice",
+  "GpuBuffer",
+  "GpuBufferDescriptor",
+  "GpuBindGroupLayout",
+  "GpuBindGroupLayoutDescriptor",
+  "GpuPrimitiveState",
+  "GpuPipelineLayout",
+  "GpuFrontFace",
+  "GpuCullMode",
+  "GpuDepthStencilState",
+  "GpuPrimitiveTopology",
+  "GpuPipelineLayoutDescriptor",
+  "GpuBindGroup",
+  "GpuBindGroupDescriptor",
+  "GpuCompareFunction",
+  "GpuRenderPassDepthStencilAttachment",
+  "GpuRenderPassColorAttachment",
+  "GpuRenderPassDescriptor",
+  "GpuRenderPassEncoder",
+  "GpuCommandEncoder",
+  "GpuCommandBuffer",
+  "GpuLoadOp",
+  "GpuStoreOp",
+  "gpu_buffer_usage",
+  "gpu_texture_usage",
+  "gpu_shader_stage",
+  "GpuTexture",
+  "GpuTextureView",
+  "GpuTextureFormat",
+  "GpuTextureDescriptor",
+  "GpuTextureDimension",
+  "GpuShaderModule",
+  "GpuShaderModuleDescriptor",
+  "GpuRenderPipeline",
+  "GpuRenderPipelineDescriptor",
+  "GpuVertexState",
+  "GpuShaderModule",
+  "GpuFragmentState",
+  "GpuTextureFormat",
+  "GpuColorTargetState",
 ]
 
 [dependencies]
-wasm-bindgen = "0.2.82"
-wasm-bindgen-futures = "0.4.32"
-js-sys = "0.3.59"
+wasm-bindgen = "0.2.83"
+wasm-bindgen-futures = "0.4.33"
+js-sys = "0.3.60"
 console_error_panic_hook = "0.1.7"
 wee_alloc = "0.4.5"
-rayon = "1.5.3"
+rayon = "1.6.1"
 console_log = { version = "0.2.0", features = ["color"] }
-wgpu = { git = "https://github.com/nrayamajhee/wgpu.git", branch="main", default-features = false }
+#wgpu = { git = "https://github.com/nrayamajhee/wgpu.git", branch="main", default-features = false }
 log = "0.4.17"
-bytemuck = { version = "1.12.1", features = [ "derive" ] }
-image = "0.24.3"
+bytemuck = { version = "1.12.3", features = [ "derive" ] }
+image = "0.24.5"
 genmesh = "0.6.2"
 strum = { version = "0.24.1", features = ["derive"] }
-nalgebra = "0.31.1"
+nalgebra = "0.31.4"
 maud = "0.23.0"
-futures-channel = "0.3.23"
+futures-channel = "0.3.25"
+gloo-utils = "0.1.6"
 
 
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.32"
+wasm-bindgen-test = "0.3.33"
 
 [profile.release]
 # Tell `rustc` to optimize for small code size.

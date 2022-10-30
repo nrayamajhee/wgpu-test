@@ -1,36 +1,17 @@
-use crate::renderer::Vertex;
+use crate::mesh::{Geometry, Primitive, Vertex};
 use genmesh::{
   generators::{Circle, IndexedPolygon, Plane, SharedVertex},
   EmitTriangles, Triangulate, Vertex as V,
 };
 use log::info;
-use nalgebra::{Isometry3, Similarity3};
-use wgpu::{util::BufferInitDescriptor, Buffer, BufferUsages};
-use wgpu::{util::DeviceExt, Device};
+use web_sys::GpuDevice;
 
 pub struct Scene<'a> {
-  device: &'a Device,
-}
-
-pub struct Geometry {
-  pub vertices: Vec<Vertex>,
-  pub indices: Vec<u16>,
-}
-
-pub struct Mesh {
-  pub vertex_buffer: Buffer,
-  pub index_buffer: Buffer,
-  pub num_indices: u32,
-  pub model: Similarity3<f32>,
-}
-
-pub enum Primitive {
-  Plane(Option<(usize, usize)>),
-  Circle(Option<usize>),
+  device: &'a GpuDevice,
 }
 
 impl<'a> Scene<'a> {
-  pub fn new(device: &'a Device) -> Self {
+  pub fn new(device: &'a GpuDevice) -> Self {
     let s = Self { device };
     info!("Scene created!");
     s
@@ -64,27 +45,6 @@ impl<'a> Scene<'a> {
         let s = subdivision.unwrap_or(4);
         Self::generate(&Circle::new(s))
       }
-    }
-  }
-  pub fn mesh(&self, name: &str, geometry: Geometry) -> Mesh {
-    let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-      label: Some(&format!("{} Vertex Buffer", name)),
-      contents: bytemuck::cast_slice(&geometry.vertices),
-      usage: BufferUsages::VERTEX,
-    });
-    let index_buffer = self
-      .device
-      .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some(&format!("{} Index Buffer", name)),
-        contents: bytemuck::cast_slice(&geometry.indices),
-        usage: BufferUsages::INDEX,
-      });
-    let model = Similarity3::identity();
-    Mesh {
-      vertex_buffer,
-      index_buffer,
-      num_indices: geometry.indices.len() as u32,
-      model,
     }
   }
 }
