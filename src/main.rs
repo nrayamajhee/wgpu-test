@@ -1,8 +1,10 @@
 mod mesh;
 mod renderer;
+mod viewport;
 
 use fluid::{body, document};
 use mesh::Primitive;
+use viewport::Viewport;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use web_sys::HtmlCanvasElement;
@@ -16,7 +18,8 @@ async fn async_main() -> Result<(), JsValue> {
   let img = document()?.create_element("img")?;
   img.set_attribute("src", "img/icon.png")?;
   let renderer = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
-  let _ = Mesh::from_geometry(
+  let _ = Viewport::new();
+  let _ = Mesh::new(
     renderer.device(),
     &Geometry::from_primitive(Primitive::Cube),
   );

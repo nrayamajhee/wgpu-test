@@ -12,6 +12,7 @@ console_log = "1.0.0"
 log = "0.4.17"
 genmesh = "0.6.2"
 js-sys = "0.3.63"
+nalgebra = "0.32.2"
 
 [dependencies.web-sys]
 version = "0.3.63"
