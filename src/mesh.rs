@@ -12,6 +12,10 @@ pub enum Primitive {
   Cube,
 }
 
+pub struct Material {
+    pub text_coords: Vec<[f32;2]>
+}
+
 pub struct Geometry {
   pub vertices: Vec<[f32; 3]>,
   pub indices: Vec<u16>,
@@ -56,7 +60,7 @@ pub struct Mesh {
 }
 
 impl Mesh {
-  pub fn from_geometry(device: &GpuDevice, geometry: &Geometry) -> Self {
+  pub fn new(device: &GpuDevice, geometry: &Geometry) -> Self {
     let size = geometry.vertices.len() * 3 * 4;
     let vertex_buffer = device.create_buffer(
       &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),

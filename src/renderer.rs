@@ -14,7 +14,23 @@ use web_sys::{
   GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
 };
 
-fn iter_to_array<T>(iterable: impl IntoIterator<Item = T>) -> Array
+pub fn get_window_dimension() -> (u32, u32) {
+  let window = window().unwrap();
+  (
+    window
+      .inner_width()
+      .expect("Window has no width")
+      .as_f64()
+      .expect("Width isn't f64") as u32,
+    window
+      .inner_height()
+      .expect("Window has no height")
+      .as_f64()
+      .expect("Height isn't f64") as u32,
+  )
+}
+
+pub fn iter_to_array<T>(iterable: impl IntoIterator<Item = T>) -> Array
 where
   T: Into<JsValue>,
 {
@@ -22,6 +38,7 @@ where
 }
 
 pub struct Renderer {
+  canvas: HtmlCanvasElement,
   context: GpuCanvasContext,
   device: GpuDevice,
   queue: GpuQueue,
@@ -90,6 +107,7 @@ impl Renderer {
     let depth_texture = device.create_texture(&depth_descriptor);
     context.configure(&ctx_config);
     Ok(Self {
+      canvas,
       context,
       depth_texture,
       device,
@@ -99,6 +117,11 @@ impl Renderer {
   }
   pub fn device(&self) -> &GpuDevice {
     &self.device
+  }
+  pub fn resize(&self) {
+    let (width, height) = get_window_dimension();
+    self.canvas.set_width(width);
+    self.canvas.set_height(height);
   }
   pub fn render(&self, objects: Vec<Mesh>) {
     let command_encoder = self.device.create_command_encoder();
