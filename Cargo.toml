@@ -10,6 +10,8 @@ fluid = { git = "https://github.com/nrayamajhee/fluid.git" }
 wasm-bindgen-futures = "0.4.36"
 console_log = "1.0.0"
 log = "0.4.17"
+genmesh = "0.6.2"
+js-sys = "0.3.63"
 
 [dependencies.web-sys]
 version = "0.3.63"
@@ -24,5 +26,37 @@ features = [
   "Gpu",
   "GpuBuffer",
   "GpuBufferDescriptor",
+  "GpuRenderPipeline",
+  "GpuRenderPipelineDescriptor",
+  "GpuTexture",
+  "GpuTextureFormat",
+  "GpuTextureView",
+  "GpuPrimitiveState",
+  "GpuPrimitiveTopology",
+  "GpuVertexState",
+  "GpuFragmentState",
+  "GpuFrontFace",
+  "GpuCullMode",
+  "GpuDepthStencilState",
+  "GpuShaderModule",
+  "GpuShaderModuleDescriptor",
+  "GpuColorTargetState",
+  "GpuCullMode",
+  "GpuFrontFace",
+  "GpuCompareFunction",
+  "GpuVertexBufferLayout",
+  "GpuVertexAttribute",
+  "GpuVertexFormat",
+  "GpuCommandEncoder",
+  "GpuRenderPassDescriptor",
+  "GpuLoadOp",
+  "GpuStoreOp",
+  "GpuCanvasContext",
+  "GpuCanvasConfiguration",
   "gpu_buffer_usage",
+  "gpu_texture_usage",
+  "GpuTextureDescriptor",
+  "GpuRenderPassColorAttachment",
+  "GpuRenderPassEncoder",
+  "GpuCommandBuffer",
 ]

@@ -1,51 +1,25 @@
-use fluid::{body, document, window};
+mod mesh;
+mod renderer;
+
+use fluid::{body, document};
+use mesh::Primitive;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
-use wasm_bindgen_futures::JsFuture;
-use web_sys::{gpu_buffer_usage, Gpu, GpuBuffer, GpuAdapter, GpuDevice, GpuQueue, HtmlCanvasElement};
+use web_sys::HtmlCanvasElement;
 
-struct Renderer {
-  canvas: HtmlCanvasElement,
-  device: GpuDevice,
-  queue: GpuQueue,
-  // vertex_buffer: GpuBuffer,
-  // index_buffer: GpuBuffer,
-}
-
-struct GpuMesh {
-  vertext_buffer: GpuBuffer,
-  index_buffer: GpuBuffer,
-}
-
-// impl GpuMesh {
-//     fn new(
-// }
-
-impl Renderer {
-  pub async fn new(canvas: HtmlCanvasElement) -> Result<Self, JsValue> {
-    let gpu = window()?.navigator().gpu();
-    let adapter = JsFuture::from(gpu.request_adapter())
-      .await?
-      .dyn_into::<GpuAdapter>()?;
-    let device = JsFuture::from(adapter.request_device())
-      .await?
-      .dyn_into::<GpuDevice>()?;
-    let queue = device.queue();
-    // let vertext_buffer = device.create_buffer(GpuBufferDescriptor::new(gpu_buffer_usage::VERTEX))
-    web_sys::console::log_1(&queue);
-    Ok(Self {
-      canvas,
-      device,
-      queue,
-      // vertex_buffer
-    })
-  }
-}
+use mesh::{Geometry, Mesh};
+use renderer::Renderer;
 
 async fn async_main() -> Result<(), JsValue> {
   let canvas = document()?.create_element("canvas")?;
   body()?.append_child(&canvas)?;
-  let _ = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
+  let img = document()?.create_element("img")?;
+  img.set_attribute("src", "img/icon.png")?;
+  let renderer = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
+  let _ = Mesh::from_geometry(
+    renderer.device(),
+    &Geometry::from_primitive(Primitive::Cube),
+  );
   Ok(())
 }
 
