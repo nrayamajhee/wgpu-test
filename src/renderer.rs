@@ -137,6 +137,7 @@ impl Renderer {
     for obj in objects {
       // pass_encoder.set_bind_group(0, &obj.model_buffer);
       pass_encoder.set_vertex_buffer(0, &obj.vertex_buffer);
+      pass_encoder.set_vertex_buffer(1, &obj.tex_coords);
       pass_encoder.draw(obj.vertext_count);
     }
     pass_encoder.end();
