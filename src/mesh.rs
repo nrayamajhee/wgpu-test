@@ -57,7 +57,6 @@ pub struct Mesh {
   pub vertext_count: u32,
   pub vertex_buffer: GpuBuffer,
   pub index_buffer: GpuBuffer,
-  pub tex_coords: GpuBuffer,
 }
 
 impl Mesh {
@@ -67,33 +66,37 @@ impl Mesh {
       .dyn_into::<WebAssembly::Memory>()
       .unwrap()
       .buffer();
-    let vertex_buffer = device.create_buffer(
-      &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
-    );
-    let array =
-      Float32Array::new_with_byte_offset(&memory_buffer, geometry.vertices.as_ptr() as u32);
-    let write_array = Float32Array::new(&vertex_buffer.get_mapped_range());
-    write_array.set(&array, 0);
-    vertex_buffer.unmap();
-    let index_buffer = device.create_buffer(
-      &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::INDEX).mapped_at_creation(true),
-    );
-    let array =
-      Float32Array::new_with_byte_offset(&memory_buffer, geometry.indices.as_ptr() as u32);
-    let write_array = Float32Array::new(&index_buffer.get_mapped_range());
-    let tex_coords = device.create_buffer(
-      &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
-    );
-    let array =
-      Float32Array::new_with_byte_offset(&memory_buffer, material.tex_coords.as_ptr() as u32);
-    let write_array = Float32Array::new(&tex_coords.get_mapped_range());
-    write_array.set(&array, 0);
-    index_buffer.unmap();
+    let vertex_buffer = {
+      let vertext_array: Vec<f32> = geometry
+        .vertices
+        .iter()
+        .zip(material.tex_coords.iter())
+        .flat_map(|(p, t)| [&p[..], t].concat())
+        .collect();
+      let vertex_buffer = device.create_buffer(
+        &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
+      );
+      let array = Float32Array::new_with_byte_offset(&memory_buffer, vertext_array.as_ptr() as u32);
+      let write_array = Float32Array::new(&vertex_buffer.get_mapped_range());
+      write_array.set(&array, 0);
+      vertex_buffer.unmap();
+      vertex_buffer
+    };
+    let index_buffer = {
+      let index_buffer = device.create_buffer(
+        &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::INDEX).mapped_at_creation(true),
+      );
+      let array =
+        Float32Array::new_with_byte_offset(&memory_buffer, geometry.indices.as_ptr() as u32);
+      let write_array = Float32Array::new(&index_buffer.get_mapped_range());
+      write_array.set(&array, 0);
+      index_buffer.unmap();
+      index_buffer
+    };
     Self {
       vertext_count: geometry.vertices.len() as u32 * 3,
       vertex_buffer,
       index_buffer,
-      tex_coords,
     }
   }
 }

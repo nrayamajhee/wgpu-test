@@ -5,14 +5,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-wasm-bindgen = "0.2.86"
 fluid = { git = "https://github.com/nrayamajhee/fluid.git" }
 wasm-bindgen-futures = "0.4.36"
-console_log = "1.0.0"
-log = "0.4.17"
 genmesh = "0.6.2"
 js-sys = "0.3.63"
 nalgebra = "0.32.2"
+gloo-console = "0.2.3"
+gloo-utils = { version = "0.1.6", features = ["serde"] }
+gloo-render = "0.1.1"
+wasm-bindgen = "0.2.86"
+serde = { version = "1.0.163", features = ["derive"] }
 
 [dependencies.web-sys]
 version = "0.3.63"
@@ -60,4 +62,5 @@ features = [
   "GpuRenderPassColorAttachment",
   "GpuRenderPassEncoder",
   "GpuCommandBuffer",
+  "GpuCanvasAlphaMode",
 ]

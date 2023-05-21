@@ -1,21 +1,25 @@
 use crate::mesh::Mesh;
-use fluid::window;
+use crate::viewport::Viewport;
+use gloo_utils::format::JsValueSerdeExt;
+use gloo_utils::window;
 use js_sys::Array;
+use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::GpuTexture;
 use web_sys::{
-  gpu_texture_usage, GpuAdapter, GpuCanvasConfiguration, GpuCanvasContext, GpuColorTargetState,
-  GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice, GpuFragmentState, GpuFrontFace,
-  GpuLoadOp, GpuPrimitiveState, GpuPrimitiveTopology, GpuQueue, GpuRenderPassColorAttachment,
-  GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor,
-  GpuShaderModuleDescriptor, GpuStoreOp, GpuTextureDescriptor, GpuTextureFormat,
-  GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
+  gpu_texture_usage, GpuAdapter, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
+  GpuColorTargetState, GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice,
+  GpuFragmentState, GpuFrontFace, GpuLoadOp, GpuPrimitiveState, GpuPrimitiveTopology, GpuQueue,
+  GpuRenderPassColorAttachment, GpuRenderPassDescriptor, GpuRenderPipeline,
+  GpuRenderPipelineDescriptor, GpuShaderModuleDescriptor, GpuStoreOp, GpuTextureDescriptor,
+  GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState,
+  HtmlCanvasElement,
 };
 
 pub fn get_window_dimension() -> (u32, u32) {
-  let window = window().unwrap();
+  let window = window();
   (
     window
       .inner_width()
@@ -46,9 +50,17 @@ pub struct Renderer {
   depth_texture: GpuTexture,
 }
 
+#[derive(Serialize)]
+pub struct Color {
+  r: f32,
+  g: f32,
+  b: f32,
+  a: f32,
+}
+
 impl Renderer {
   pub async fn new(canvas: HtmlCanvasElement) -> Result<Self, JsValue> {
-    let gpu = window()?.navigator().gpu();
+    let gpu = window().navigator().gpu();
     let adapter = JsFuture::from(gpu.request_adapter())
       .await?
       .dyn_into::<GpuAdapter>()?;
@@ -56,53 +68,52 @@ impl Renderer {
       .await?
       .dyn_into::<GpuDevice>()?;
     let queue = device.queue();
-    let shader =
-      device.create_shader_module(&GpuShaderModuleDescriptor::new(include_str!("shader.wgsl")));
-    let position_attribute_description = GpuVertexAttribute::new(GpuVertexFormat::Float32x3, 0., 0);
-    let texcoords_attribute_description =
-      GpuVertexAttribute::new(GpuVertexFormat::Float32x2, 0., 1);
-    let position_buffer_description =
-      GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[position_attribute_description]));
-    let texcoords_buffer_description =
-      GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[texcoords_attribute_description]));
-    let mut vertex_state = GpuVertexState::new("vs_main", &shader);
-    vertex_state.buffers(&iter_to_array(&[
-      position_buffer_description,
-      texcoords_buffer_description,
-    ]));
-    let fragment_state = GpuFragmentState::new(
-      "fs_main",
-      &shader,
-      &iter_to_array(&[GpuColorTargetState::new(GpuTextureFormat::Rgba8unorm)]),
-    );
-    let pipeline = device.create_render_pipeline(
-      &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
-        .label("Render pipeline")
-        .fragment(&fragment_state)
-        .primitive(
-          &GpuPrimitiveState::new()
-            .front_face(GpuFrontFace::Cw)
-            .cull_mode(GpuCullMode::Front)
-            .topology(GpuPrimitiveTopology::TriangleList),
-        )
-        .depth_stencil(
-          GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
-            .depth_compare(GpuCompareFunction::Less),
-        ),
-    );
+    let pipeline = {
+      let shader =
+        device.create_shader_module(&GpuShaderModuleDescriptor::new(include_str!("shader.wgsl")));
+      let position_attribute_description =
+        GpuVertexAttribute::new(GpuVertexFormat::Float32x3, 0., 0);
+      let texcoords_attribute_description =
+        GpuVertexAttribute::new(GpuVertexFormat::Float32x2, 0., 1);
+      let mut vertex_state = GpuVertexState::new("vs_main", &shader);
+      vertex_state.buffers(&iter_to_array(&[
+        GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[position_attribute_description])),
+        GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[texcoords_attribute_description])),
+      ]));
+      let fragment_state = GpuFragmentState::new(
+        "fs_main",
+        &shader,
+        &iter_to_array(&[GpuColorTargetState::new(GpuTextureFormat::Rgba8unorm)]),
+      );
+      device.create_render_pipeline(
+        &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
+          .label("Render pipeline")
+          .fragment(&fragment_state)
+          .primitive(
+            &GpuPrimitiveState::new()
+              .front_face(GpuFrontFace::Cw)
+              .cull_mode(GpuCullMode::Front)
+              .topology(GpuPrimitiveTopology::TriangleList),
+          )
+          .depth_stencil(
+            GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
+              .depth_compare(GpuCompareFunction::Less),
+          ),
+      )
+    };
     let context = canvas
       .get_context("webgpu")?
       .unwrap()
       .dyn_into::<GpuCanvasContext>()?;
-    let mut ctx_config = GpuCanvasConfiguration::new(&device, GpuTextureFormat::Bgra8unorm);
-    ctx_config.usage(gpu_texture_usage::RENDER_ATTACHMENT);
+    let mut ctx_config = GpuCanvasConfiguration::new(&device, gpu.get_preferred_canvas_format());
+    ctx_config.alpha_mode(GpuCanvasAlphaMode::Premultiplied);
     let depth_descriptor = GpuTextureDescriptor::new(
       GpuTextureFormat::Depth24plusStencil8,
       &iter_to_array(&[
         JsValue::from_f64(canvas.width() as f64),
         JsValue::from_f64(canvas.height() as f64),
       ]),
-      gpu_texture_usage::RENDER_ATTACHMENT | gpu_texture_usage::COPY_SRC,
+      gpu_texture_usage::RENDER_ATTACHMENT,
     );
     let depth_texture = device.create_texture(&depth_descriptor);
     context.configure(&ctx_config);
@@ -123,7 +134,7 @@ impl Renderer {
     self.canvas.set_width(width);
     self.canvas.set_height(height);
   }
-  pub fn render(&self, objects: Vec<Mesh>) {
+  pub fn render(&self, meshes: Vec<Mesh>, viewport: Viewport) {
     let command_encoder = self.device.create_command_encoder();
     let _ = self.context.get_current_texture().create_view();
     let render_pass_descriptor =
@@ -131,14 +142,22 @@ impl Renderer {
         GpuLoadOp::Clear,
         GpuStoreOp::Store,
         &self.context.get_current_texture().create_view(),
+      )
+      .clear_value(
+        &JsValue::from_serde(&Color {
+          r: 0.5,
+          g: 0.5,
+          b: 0.5,
+          a: 0.5,
+        })
+        .unwrap(),
       )]));
     let pass_encoder = command_encoder.begin_render_pass(&render_pass_descriptor);
     pass_encoder.set_pipeline(&self.pipeline);
-    for obj in objects {
+    for mesh in meshes {
       // pass_encoder.set_bind_group(0, &obj.model_buffer);
-      pass_encoder.set_vertex_buffer(0, &obj.vertex_buffer);
-      pass_encoder.set_vertex_buffer(1, &obj.tex_coords);
-      pass_encoder.draw(obj.vertext_count);
+      pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
+      pass_encoder.draw(mesh.vertext_count);
     }
     pass_encoder.end();
     self
