@@ -1,6 +1,6 @@
-use crate::renderer::get_window_dimension;
 use nalgebra::{Isometry3, Matrix4, Perspective3, Point3, Unit, UnitQuaternion, Vector3};
 use std::f32::consts::PI;
+use web_sys::HtmlCanvasElement;
 
 pub struct Viewport {
   view: Isometry3<f32>,
@@ -13,12 +13,19 @@ pub struct Viewport {
 // );
 
 impl Viewport {
-  pub fn new() -> Self {
-    let (width, height) = get_window_dimension();
+  pub fn new(canvas: &HtmlCanvasElement) -> Self {
     let target = Isometry3::identity();
-    let proj = Perspective3::new(width as f32 / height as f32, PI / 2., 0.1, 1000.);
-    let eye = [0., 2., 2.].into();
+    let proj = Perspective3::new(
+      canvas.width() as f32 / canvas.height() as f32,
+      PI / 2.,
+      0.1,
+      1000.,
+    );
+    let eye = [0., 0., -2.].into();
     let view = Isometry3::look_at_rh(&eye, &target.translation.vector.into(), &Vector3::y());
     Self { view, target, proj }
+  }
+  pub fn view_proj(&self) -> Matrix4<f32> {
+    self.view.to_homogeneous() * self.proj.to_homogeneous()
   }
 }
