@@ -6,31 +6,36 @@ edition = "2021"
 
 [dependencies]
 fluid = { git = "https://github.com/nrayamajhee/fluid.git" }
-wasm-bindgen-futures = "0.4.36"
+wasm-bindgen-futures = "0.4.37"
 genmesh = "0.6.2"
-js-sys = "0.3.63"
-nalgebra = "0.32.2"
+js-sys = "0.3.64"
+nalgebra = "0.32.3"
 gloo-console = "0.2.3"
-gloo-utils = { version = "0.1.6", features = ["serde"] }
+gloo-utils = { version = "0.1.7", features = ["serde"] }
 gloo-render = "0.1.1"
-wasm-bindgen = "0.2.86"
-serde = { version = "1.0.163", features = ["derive"] }
+wasm-bindgen = "0.2.87"
+serde = { version = "1.0.188", features = ["derive"] }
+serde-wasm-bindgen = "0.4"
+gloo-timers = "0.2.6"
 
 [dependencies.web-sys]
-version = "0.3.63"
+version = "0.3.64"
 features = [
+  "Performance",
+  "Navigator",
   "Document",
   "Window",
   "HtmlCanvasElement",
   "GpuDevice",
   "GpuQueue",
   "GpuAdapter",
-  "Navigator",
   "Gpu",
   "GpuBuffer",
   "GpuBufferDescriptor",
   "GpuRenderPipeline",
   "GpuRenderPipelineDescriptor",
+  "GpuPipelineLayout",
+  "GpuPipelineLayoutDescriptor",
   "GpuTexture",
   "GpuTextureFormat",
   "GpuTextureView",
@@ -51,16 +56,27 @@ features = [
   "GpuVertexAttribute",
   "GpuVertexFormat",
   "GpuCommandEncoder",
-  "GpuRenderPassDescriptor",
   "GpuLoadOp",
   "GpuStoreOp",
   "GpuCanvasContext",
   "GpuCanvasConfiguration",
-  "gpu_buffer_usage",
-  "gpu_texture_usage",
   "GpuTextureDescriptor",
-  "GpuRenderPassColorAttachment",
-  "GpuRenderPassEncoder",
   "GpuCommandBuffer",
   "GpuCanvasAlphaMode",
+  "GpuRenderPassDepthStencilAttachment",
+  "GpuRenderPassDescriptor",
+  "GpuRenderPassColorAttachment",
+  "GpuRenderPassEncoder",
+  "GpuBindGroup",
+  "GpuBindGroupLayout",
+  "GpuBindGroupLayoutDescriptor",
+  "GpuBindGroupDescriptor",
+  "GpuBindGroupEntry",
+  "GpuBindGroupLayoutEntry",
+  "GpuBufferBindingLayout",
+  "GpuBufferBinding",
+  "GpuIndexFormat",
+  "gpu_shader_stage",
+  "gpu_buffer_usage",
+  "gpu_texture_usage",
 ]
