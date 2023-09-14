@@ -8,9 +8,9 @@ pub struct Viewport {
   proj: Perspective3<f32>,
 }
 
-// const OPENGL_TO_WGPU: Matrix4<f32> = Matrix4::new(
-//   1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0,
-// );
+const OPENGL_TO_WGPU: Matrix4<f32> = Matrix4::new(
+  1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0,
+);
 
 impl Viewport {
   pub fn new(canvas: &HtmlCanvasElement) -> Self {
@@ -21,11 +21,11 @@ impl Viewport {
       0.1,
       1000.,
     );
-    let eye = [0., 0., -2.].into();
+    let eye = [2., 2., -2.].into();
     let view = Isometry3::look_at_rh(&eye, &target.translation.vector.into(), &Vector3::y());
     Self { view, target, proj }
   }
   pub fn view_proj(&self) -> Matrix4<f32> {
-    self.view.to_homogeneous() * self.proj.to_homogeneous()
+    self.proj.to_homogeneous() * self.view.to_homogeneous()
   }
 }

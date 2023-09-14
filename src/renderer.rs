@@ -6,6 +6,7 @@ use gloo_utils::window;
 use js_sys::Array;
 use js_sys::Float32Array;
 use js_sys::Object;
+use nalgebra::Isometry3;
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::to_value;
 use wasm_bindgen::JsCast;
@@ -54,6 +55,9 @@ impl Renderer {
       .get_context("webgpu")?
       .unwrap()
       .dyn_into::<GpuCanvasContext>()?;
+    let (width, height) = get_window_dimension();
+    canvas.set_width(width);
+    canvas.set_height(height);
     let mut ctx_config = GpuCanvasConfiguration::new(&device, gpu.get_preferred_canvas_format());
     ctx_config.alpha_mode(GpuCanvasAlphaMode::Premultiplied);
     context.configure(&ctx_config);
@@ -72,10 +76,10 @@ impl Renderer {
       .unwrap(),
     );
     let depth_descriptor = GpuTextureDescriptor::new(
-      GpuTextureFormat::Depth24plus,
+      GpuTextureFormat::Depth24plusStencil8,
       &iter_to_array(&[
-        JsValue::from_f64(canvas.width() as f64),
-        JsValue::from_f64(canvas.height() as f64),
+        JsValue::from_f64(width as f64),
+        JsValue::from_f64(height as f64),
       ]),
       gpu_texture_usage::RENDER_ATTACHMENT,
     );
@@ -83,9 +87,12 @@ impl Renderer {
     let mut depth_attachment =
       GpuRenderPassDepthStencilAttachment::new(&depth_texture.create_view());
     depth_attachment
-      .depth_load_op(GpuLoadOp::Load)
+      .depth_clear_value(1.)
+      .depth_load_op(GpuLoadOp::Clear)
       .depth_store_op(GpuStoreOp::Store)
-      .depth_clear_value(1.0);
+      .stencil_clear_value(0)
+      .stencil_load_op(GpuLoadOp::Clear)
+      .stencil_store_op(GpuStoreOp::Store);
     let mut render_pass_descriptor =
       GpuRenderPassDescriptor::new(&iter_to_array(&[JsValue::from(&color_attachment)]));
     render_pass_descriptor.depth_stencil_attachment(&depth_attachment);
@@ -142,7 +149,7 @@ impl Renderer {
               .topology(GpuPrimitiveTopology::TriangleList),
           )
           .depth_stencil(
-            GpuDepthStencilState::new(GpuTextureFormat::Depth24plus)
+            GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
               .depth_compare(GpuCompareFunction::Less)
               .depth_write_enabled(true),
           ),
@@ -176,6 +183,9 @@ impl Renderer {
     self
       .render_pass_descriptor
       .color_attachments(&iter_to_array(&[JsValue::from(&self.color_attachment)]));
+    self
+      .render_pass_descriptor
+      .depth_stencil_attachment(&self.depth_attachment);
     let pass_encoder = command_encoder.begin_render_pass(&self.render_pass_descriptor);
     pass_encoder.set_pipeline(&self.pipeline);
     pass_encoder.set_viewport(
@@ -186,24 +196,44 @@ impl Renderer {
       0.,
       1.,
     );
+    pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
     for mesh in meshes {
       pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
       pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
       pass_encoder.set_bind_group(0, &self.uniform_buffer_bind_group);
+      log!(format!("{:?}", viewport.view_proj()));
       let view_proj = Float32Array::from(viewport.view_proj().as_slice());
-      self.queue.write_buffer_with_u32_and_buffer_source_and_u32(
-        &self.uniform_buffer,
-        0,
-        &view_proj,
-        16,
-      );
+      self
+        .queue
+        .write_buffer_with_u32_and_buffer_source(&self.uniform_buffer, 0, &view_proj);
       pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
-      pass_encoder.draw_indexed(mesh.vertext_count);
+      pass_encoder.draw_indexed(mesh.index_count);
     }
     pass_encoder.end();
     let commands = command_encoder.finish();
     self.queue.submit(&iter_to_array(&[commands]));
   }
+  pub fn resize(&self) {
+    let (width, height) = get_window_dimension();
+    self.canvas.set_width(width);
+    self.canvas.set_height(height);
+  }
+}
+
+pub fn get_window_dimension() -> (u32, u32) {
+  let window = window();
+  (
+    window
+      .inner_width()
+      .expect("Window has no width")
+      .as_f64()
+      .expect("Width isn't f64") as u32,
+    window
+      .inner_height()
+      .expect("Window has no height")
+      .as_f64()
+      .expect("Height isn't f64") as u32,
+  )
 }
 
 pub fn iter_to_array<T>(iterable: impl IntoIterator<Item = T>) -> Array
