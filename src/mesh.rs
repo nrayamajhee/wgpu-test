@@ -4,6 +4,7 @@ use genmesh::{
   EmitTriangles, Triangulate, Vertex,
 };
 use js_sys::{Float32Array, Uint16Array};
+use nalgebra::geometry;
 use wasm_bindgen::JsValue;
 use web_sys::{gpu_buffer_usage, GpuBuffer, GpuBufferDescriptor, GpuDevice};
 
@@ -57,6 +58,7 @@ impl Geometry {
 
 pub struct Mesh {
   pub vertext_count: u32,
+  pub index_count: u32,
   pub vertex_buffer: GpuBuffer,
   pub vertex_colors: GpuBuffer,
   pub index_buffer: GpuBuffer,
@@ -65,6 +67,7 @@ pub struct Mesh {
 impl Mesh {
   pub fn new(device: &GpuDevice, geometry: &Geometry, material: &Material) -> Self {
     let size = geometry.vertices.len() * 3 * 4;
+    let size = size + 3 & !3;
     let vertex_buffer = {
       let vertex_buffer = device.create_buffer(
         &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
@@ -75,15 +78,23 @@ impl Mesh {
       vertex_buffer.unmap();
       vertex_buffer
     };
+    let size = geometry.indices.len() * 2;
+    let size = size + 3 & !3;
     let index_buffer = {
       let index_buffer = device.create_buffer(
-        &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::INDEX).mapped_at_creation(true),
+        &GpuBufferDescriptor::new(
+          size as f64,
+          gpu_buffer_usage::INDEX | gpu_buffer_usage::COPY_DST,
+        )
+        .mapped_at_creation(true),
       );
-      let write_array = Float32Array::new(&index_buffer.get_mapped_range());
+      let write_array = Uint16Array::new(&index_buffer.get_mapped_range());
       write_array.set(&Uint16Array::from(&geometry.indices[..]), 0);
       index_buffer.unmap();
       index_buffer
     };
+    let size = material.vertex_colors.len() * 3 * 4;
+    let size = size + 3 & !3;
     let vertex_colors = {
       let vertex_buffer = device.create_buffer(
         &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
@@ -101,6 +112,7 @@ impl Mesh {
     };
     Self {
       vertext_count: geometry.vertices.len() as u32,
+      index_count: geometry.indices.len() as u32,
       vertex_buffer,
       index_buffer,
       vertex_colors,
