@@ -1,0 +1,43 @@
+name: Github Pages
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+      - uses: jetli/trunk-action@v0.1.0
+      - uses: jetli/wasm-bindgen-action@v0.1.0
+      - uses: actions/checkout@v2
+      - name: Build
+        run: |
+          echo "[build]" >> Trunk.toml
+          echo 'public_url = "/wgpu-test/"' >> Trunk.toml
+          trunk build --release
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: ./dist
+  deploy:
+      needs: build
+      permissions:
+        pages: write
+        id-token: write
+      environment:
+        name: github-pages
+        url: ${{ steps.deployment.outputs.page_url }}
+      runs-on: ubuntu-latest
+      steps:
+        - name: Deploy to GitHub Pages
+          id: deployment
+          uses: actions/deploy-pages@v1
