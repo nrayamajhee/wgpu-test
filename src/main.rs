@@ -2,6 +2,7 @@ mod mesh;
 mod renderer;
 mod viewport;
 
+use genmesh::generators::{Cube, IcoSphere, Plane};
 use gloo_console::log;
 use gloo_timers::callback::Timeout;
 use gloo_utils::{body, document, window};
@@ -29,15 +30,15 @@ async fn async_main() -> Result<(), JsValue> {
   let mut renderer = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
   let viewport = Viewport::new(renderer.canvas());
 
-  let geo = Geometry::from_primitive(Primitive::Cube);
+  let geo = Geometry::from_genmesh(&IcoSphere::new());
   let mat = Material {
-    vertex_colors: geo.vertices.iter().map(|_| [1., 1., 1.]).collect(),
+    vertex_colors: geo.vertices.iter().map(|_| [1., 0., 0.]).collect(),
     texture_coordinates: vec![],
   };
   let mesh = Mesh::new(renderer.device(), &geo, &mat);
-  let geo = Geometry::from_primitive(Primitive::Plane(None));
+  let geo = Geometry::from_genmesh(&Plane::new());
   let mat = Material {
-    vertex_colors: geo.vertices.iter().map(|_| [1., 1., 1.]).collect(),
+    vertex_colors: geo.vertices.iter().map(|_| [0., 1., 0.]).collect(),
     texture_coordinates: geo
       .vertices
       .iter()
@@ -47,7 +48,7 @@ async fn async_main() -> Result<(), JsValue> {
 
   let mesh2 = Mesh::new(renderer.device(), &geo, &mat);
 
-  let meshes = vec![mesh2];
+  let meshes = vec![mesh, mesh2];
 
   on_animation_frame(
     move |_| {

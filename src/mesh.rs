@@ -16,6 +16,7 @@ use web_sys::{
 pub enum Primitive {
   Plane(Option<(usize, usize)>),
   Circle(Option<usize>),
+  Sphere(Option<usize>),
   Cube,
 }
 
@@ -45,19 +46,6 @@ impl Geometry {
       .flat_map(|i| [i.x as u16, i.y as u16, i.z as u16])
       .collect();
     Geometry { vertices, indices }
-  }
-  pub fn from_primitive(primitive: Primitive) -> Self {
-    match primitive {
-      Primitive::Plane(subdivision) => {
-        let (x, y) = subdivision.unwrap_or((1, 1));
-        Self::from_genmesh(&Plane::subdivide(x, y))
-      }
-      Primitive::Cube => Self::from_genmesh(&Cube::new()),
-      Primitive::Circle(subdivision) => {
-        let s = subdivision.unwrap_or(4);
-        Self::from_genmesh(&Circle::new(s))
-      }
-    }
   }
 }
 
