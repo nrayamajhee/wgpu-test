@@ -8,7 +8,7 @@ use gloo_utils::{body, document, window};
 use mesh::Primitive;
 use viewport::Viewport;
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlCanvasElement, Performance};
+use web_sys::{HtmlCanvasElement, HtmlImageElement};
 
 use mesh::{Geometry, Material, Mesh};
 use renderer::Renderer;
@@ -32,21 +32,22 @@ async fn async_main() -> Result<(), JsValue> {
   let geo = Geometry::from_primitive(Primitive::Cube);
   let mat = Material {
     vertex_colors: geo.vertices.iter().map(|_| [1., 1., 1.]).collect(),
-    tex_coords: geo
+    texture_coordinates: vec![],
+  };
+  let mesh = Mesh::new(renderer.device(), &geo, &mat);
+  let geo = Geometry::from_primitive(Primitive::Plane(None));
+  let mat = Material {
+    vertex_colors: geo.vertices.iter().map(|_| [1., 1., 1.]).collect(),
+    texture_coordinates: geo
       .vertices
       .iter()
       .map(|v| [(v[0] + 1.) / 2., 1. - (v[1] + 1.) / 2.])
       .collect(),
   };
-  let mesh = Mesh::new(renderer.device(), &geo, &mat);
-  let geo = Geometry::from_primitive(Primitive::Plane(None));
-  let mat = Material {
-    vertex_colors: geo.vertices.iter().map(|_| [1., 0., 1.]).collect(),
-    tex_coords: vec![],
-  };
+
   let mesh2 = Mesh::new(renderer.device(), &geo, &mat);
 
-  let meshes = vec![mesh, mesh2];
+  let meshes = vec![mesh2];
 
   on_animation_frame(
     move |_| {

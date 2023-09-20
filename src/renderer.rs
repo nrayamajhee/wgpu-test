@@ -1,37 +1,32 @@
 use crate::mesh::Mesh;
 use crate::viewport::Viewport;
-use gloo_console::log;
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Array;
 use js_sys::Float32Array;
 use js_sys::Object;
-use nalgebra::Isometry3;
-use serde::{Deserialize, Serialize};
-use serde_wasm_bindgen::to_value;
+use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::gpu_buffer_usage;
-use web_sys::GpuTexture;
 use web_sys::{
-  gpu_shader_stage, gpu_texture_usage, GpuAdapter, GpuBindGroup, GpuBindGroupDescriptor,
-  GpuBindGroupEntry, GpuBindGroupLayout, GpuBindGroupLayoutDescriptor, GpuBindGroupLayoutEntry,
-  GpuBuffer, GpuBufferBinding, GpuBufferBindingLayout, GpuBufferDescriptor, GpuCanvasAlphaMode,
+  gpu_texture_usage, GpuAdapter, GpuAddressMode, GpuBindGroup, GpuBindGroupDescriptor,
+  GpuBindGroupEntry, GpuBuffer, GpuBufferBinding, GpuBufferDescriptor, GpuCanvasAlphaMode,
   GpuCanvasConfiguration, GpuCanvasContext, GpuColorTargetState, GpuCompareFunction, GpuCullMode,
-  GpuDepthStencilState, GpuDevice, GpuFragmentState, GpuFrontFace, GpuIndexFormat, GpuLoadOp,
-  GpuPipelineLayout, GpuPipelineLayoutDescriptor, GpuPrimitiveState, GpuPrimitiveTopology,
-  GpuQueue, GpuRenderPassColorAttachment, GpuRenderPassDepthStencilAttachment,
-  GpuRenderPassDescriptor, GpuRenderPassEncoder, GpuRenderPipeline, GpuRenderPipelineDescriptor,
-  GpuShaderModuleDescriptor, GpuStoreOp, GpuTextureDescriptor, GpuTextureFormat,
-  GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
+  GpuDepthStencilState, GpuDevice, GpuFilterMode, GpuFragmentState, GpuFrontFace,
+  GpuImageCopyExternalImage, GpuImageCopyTextureTagged, GpuIndexFormat, GpuLoadOp,
+  GpuPrimitiveState, GpuPrimitiveTopology, GpuRenderPassColorAttachment,
+  GpuRenderPassDepthStencilAttachment, GpuRenderPassDescriptor, GpuRenderPipeline,
+  GpuRenderPipelineDescriptor, GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp,
+  GpuTexture, GpuTextureDescriptor, GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout,
+  GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
 };
 
 pub struct Renderer {
   canvas: HtmlCanvasElement,
   context: GpuCanvasContext,
   device: GpuDevice,
-  queue: GpuQueue,
   pipeline: GpuRenderPipeline,
   depth_texture: GpuTexture,
   color_attachment: GpuRenderPassColorAttachment,
@@ -39,6 +34,7 @@ pub struct Renderer {
   render_pass_descriptor: GpuRenderPassDescriptor,
   uniform_buffer: GpuBuffer,
   uniform_buffer_bind_group: GpuBindGroup,
+  texture_bind_group: GpuBindGroup,
 }
 
 impl Renderer {
@@ -50,7 +46,6 @@ impl Renderer {
     let device = JsFuture::from(adapter.request_device())
       .await?
       .dyn_into::<GpuDevice>()?;
-    let queue = device.queue();
     let context = canvas
       .get_context("webgpu")?
       .unwrap()
@@ -100,52 +95,69 @@ impl Renderer {
       16. * 4.,
       gpu_buffer_usage::UNIFORM | gpu_buffer_usage::COPY_DST,
     ));
-    let mut layout_entry = GpuBindGroupLayoutEntry::new(0, gpu_shader_stage::VERTEX);
-    layout_entry.buffer(&GpuBufferBindingLayout::new());
-    let entries: Array = [layout_entry].iter().collect();
-    let uniform_bind_group_layout =
-      device.create_bind_group_layout(&GpuBindGroupLayoutDescriptor::new(&entries));
-    let uniform_buffer_bind_group = device.create_bind_group(&GpuBindGroupDescriptor::new(
-      &iter_to_array(&[JsValue::from(&GpuBindGroupEntry::new(
-        0,
-        &GpuBufferBinding::new(&uniform_buffer),
-      ))]),
-      &uniform_bind_group_layout,
+    let mut sampler_desc = GpuSamplerDescriptor::new();
+    sampler_desc.address_mode_u(GpuAddressMode::Repeat);
+    sampler_desc.address_mode_v(GpuAddressMode::Repeat);
+    sampler_desc.mag_filter(GpuFilterMode::Linear);
+    let sampler = device.create_sampler_with_descriptor(&sampler_desc);
+    let image = gloo_utils::document()
+      .create_element("img")?
+      .dyn_into::<web_sys::HtmlImageElement>()?;
+    image.set_attribute("src", "img/icon.png").unwrap();
+    let tex = device.create_texture(&GpuTextureDescriptor::new(
+      GpuTextureFormat::Rgba8unormSrgb,
+      &iter_to_array([image.width() as i32, image.height() as i32]),
+      gpu_texture_usage::TEXTURE_BINDING
+        | gpu_texture_usage::COPY_DST
+        | gpu_texture_usage::RENDER_ATTACHMENT,
     ));
+    let bitmap =
+      JsFuture::from(window().create_image_bitmap_with_html_image_element(&image)?).await?;
+    let mut source = GpuImageCopyExternalImage::new(&Object::new());
+    source.flip_y(true);
+    source.source(&Object::from(bitmap));
+    device
+      .queue()
+      .copy_external_image_to_texture_with_u32_sequence(
+        &source,
+        &GpuImageCopyTextureTagged::new(&tex),
+        &JsValue::from_serde(&Rect {
+          width: image.width(),
+          height: image.height(),
+        })
+        .unwrap(),
+      );
     let pipeline = {
       let shader =
         device.create_shader_module(&GpuShaderModuleDescriptor::new(include_str!("shader.wgsl")));
       let position_attribute_description =
         GpuVertexAttribute::new(GpuVertexFormat::Float32x3, 0., 0);
-      let vertexcolor_attribute_description =
+      let vertex_color_attribute_description =
         GpuVertexAttribute::new(GpuVertexFormat::Float32x3, 0., 1);
-      // let texcoords_attribute_description =
-      // GpuVertexAttribute::new(GpuVertexFormat::Float32x2, 0., 1);
+      let tex_coords_attribute_description =
+        GpuVertexAttribute::new(GpuVertexFormat::Float32x2, 0., 2);
       let mut vertex_state = GpuVertexState::new("vs_main", &shader);
       vertex_state.buffers(&iter_to_array(&[
         GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[position_attribute_description])),
         GpuVertexBufferLayout::new(
           4. * 3.,
-          &iter_to_array(&[vertexcolor_attribute_description]),
+          &iter_to_array(&[vertex_color_attribute_description]),
         ),
-        // GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[texcoords_attribute_description])),
+        GpuVertexBufferLayout::new(4. * 2., &iter_to_array(&[tex_coords_attribute_description])),
       ]));
       let fragment_state = GpuFragmentState::new(
         "fs_main",
         &shader,
         &iter_to_array(&[GpuColorTargetState::new(gpu.get_preferred_canvas_format())]),
       );
-      let pipeline_layout_description =
-        GpuPipelineLayoutDescriptor::new(&iter_to_array(&[uniform_bind_group_layout]));
-      let layout = device.create_pipeline_layout(&pipeline_layout_description);
       device.create_render_pipeline(
-        &GpuRenderPipelineDescriptor::new(&layout, &vertex_state)
+        &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
           .label("Render pipeline")
           .fragment(&fragment_state)
           .primitive(
             &GpuPrimitiveState::new()
               .front_face(GpuFrontFace::Cw)
-              .cull_mode(GpuCullMode::Front)
+              .cull_mode(GpuCullMode::Back)
               .topology(GpuPrimitiveTopology::TriangleList),
           )
           .depth_stencil(
@@ -155,11 +167,24 @@ impl Renderer {
           ),
       )
     };
+    let uniform_buffer_bind_group = device.create_bind_group(&GpuBindGroupDescriptor::new(
+      &iter_to_array(&[JsValue::from(&GpuBindGroupEntry::new(
+        0,
+        &GpuBufferBinding::new(&uniform_buffer),
+      ))]),
+      &pipeline.get_bind_group_layout(0),
+    ));
+    let texture_bind_group = device.create_bind_group(&GpuBindGroupDescriptor::new(
+      &iter_to_array(&[
+        JsValue::from(&GpuBindGroupEntry::new(0, &sampler)),
+        JsValue::from(&GpuBindGroupEntry::new(1, &tex.create_view())),
+      ]),
+      &pipeline.get_bind_group_layout(1),
+    ));
     Ok(Self {
       canvas,
       context,
       device,
-      queue,
       depth_texture,
       color_attachment,
       depth_attachment,
@@ -167,6 +192,7 @@ impl Renderer {
       pipeline,
       uniform_buffer,
       uniform_buffer_bind_group,
+      texture_bind_group,
     })
   }
   pub fn canvas(&self) -> &HtmlCanvasElement {
@@ -197,21 +223,21 @@ impl Renderer {
       1.,
     );
     pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
+    let queue = self.device.queue();
     for mesh in meshes {
       pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
       pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
+      pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
       pass_encoder.set_bind_group(0, &self.uniform_buffer_bind_group);
-      log!(format!("{:?}", viewport.view_proj()));
+      pass_encoder.set_bind_group(1, &self.texture_bind_group);
       let view_proj = Float32Array::from(viewport.view_proj().as_slice());
-      self
-        .queue
-        .write_buffer_with_u32_and_buffer_source(&self.uniform_buffer, 0, &view_proj);
+      queue.write_buffer_with_u32_and_buffer_source(&self.uniform_buffer, 0, &view_proj);
       pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
       pass_encoder.draw_indexed(mesh.index_count);
     }
     pass_encoder.end();
     let commands = command_encoder.finish();
-    self.queue.submit(&iter_to_array(&[commands]));
+    queue.submit(&iter_to_array(&[commands]));
   }
   pub fn resize(&self) {
     let (width, height) = get_window_dimension();
@@ -249,4 +275,10 @@ pub struct Color {
   g: f32,
   b: f32,
   a: f32,
+}
+
+#[derive(Serialize)]
+pub struct Rect {
+  width: u32,
+  height: u32,
 }

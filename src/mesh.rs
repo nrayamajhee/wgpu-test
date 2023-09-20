@@ -3,10 +3,15 @@ use genmesh::{
   generators::{Circle, Cube, IndexedPolygon, Plane, SharedVertex},
   EmitTriangles, Triangulate, Vertex,
 };
-use js_sys::{Float32Array, Uint16Array};
-use nalgebra::geometry;
+use gloo_utils::format::JsValueSerdeExt;
+use js_sys::{Float32Array, Object, Uint16Array};
+use serde::Serialize;
 use wasm_bindgen::JsValue;
-use web_sys::{gpu_buffer_usage, GpuBuffer, GpuBufferDescriptor, GpuDevice};
+use web_sys::{
+  gpu_buffer_usage, gpu_texture_usage, GpuBuffer, GpuBufferDescriptor, GpuDevice,
+  GpuImageCopyExternalImage, GpuImageCopyTextureTagged, GpuTexture, GpuTextureDescriptor,
+  GpuTextureFormat, HtmlImageElement,
+};
 
 pub enum Primitive {
   Plane(Option<(usize, usize)>),
@@ -16,7 +21,7 @@ pub enum Primitive {
 
 pub struct Material {
   pub vertex_colors: Vec<[f32; 3]>,
-  pub tex_coords: Vec<[f32; 2]>,
+  pub texture_coordinates: Vec<[f32; 2]>,
 }
 
 pub struct Geometry {
@@ -61,6 +66,7 @@ pub struct Mesh {
   pub index_count: u32,
   pub vertex_buffer: GpuBuffer,
   pub vertex_colors: GpuBuffer,
+  pub texture_coordinates: GpuBuffer,
   pub index_buffer: GpuBuffer,
 }
 
@@ -110,12 +116,30 @@ impl Mesh {
       vertex_buffer.unmap();
       vertex_buffer
     };
+    let size = material.texture_coordinates.len() * 2 * 4;
+    let size = size + 3 & !3;
+    let texture_coordinates = {
+      let texure_coordinates = device.create_buffer(
+        &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
+      );
+      let vertices: Vec<f32> = material
+        .texture_coordinates
+        .iter()
+        .flatten()
+        .map(|f| *f)
+        .collect();
+      let write_array = Float32Array::new(&texure_coordinates.get_mapped_range());
+      write_array.set(&Float32Array::from(&vertices[..]), 0);
+      texure_coordinates.unmap();
+      texure_coordinates
+    };
     Self {
       vertext_count: geometry.vertices.len() as u32,
       index_count: geometry.indices.len() as u32,
       vertex_buffer,
       index_buffer,
       vertex_colors,
+      texture_coordinates,
     }
   }
 }
