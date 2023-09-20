@@ -8,9 +8,9 @@ pub struct Viewport {
   proj: Perspective3<f32>,
 }
 
-const OPENGL_TO_WGPU: Matrix4<f32> = Matrix4::new(
-  1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0,
-);
+// const OPENGL_TO_WGPU: Matrix4<f32> = Matrix4::new(
+//   1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0,
+// );
 
 impl Viewport {
   pub fn new(canvas: &HtmlCanvasElement) -> Self {
