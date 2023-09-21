@@ -1,28 +1,25 @@
-use crate::renderer::iter_to_array;
+use crate::{iter_to_array, renderer::Renderer};
 use genmesh::{
-  generators::{Circle, Cube, IndexedPolygon, Plane, SharedVertex},
+  generators::{IndexedPolygon, SharedVertex},
   EmitTriangles, Triangulate, Vertex,
 };
 use gloo_utils::format::JsValueSerdeExt;
+use gloo_utils::window;
 use js_sys::{Float32Array, Object, Uint16Array};
 use serde::Serialize;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-  gpu_buffer_usage, gpu_texture_usage, GpuBuffer, GpuBufferDescriptor, GpuDevice,
-  GpuImageCopyExternalImage, GpuImageCopyTextureTagged, GpuTexture, GpuTextureDescriptor,
-  GpuTextureFormat, HtmlImageElement,
+  gpu_buffer_usage, gpu_texture_usage, GpuAddressMode, GpuBindGroup, GpuBindGroupDescriptor,
+  GpuBindGroupEntry, GpuBuffer, GpuBufferBinding, GpuBufferDescriptor, GpuFilterMode,
+  GpuImageCopyExternalImage, GpuImageCopyTextureTagged, GpuSamplerDescriptor, GpuTextureDescriptor,
+  GpuTextureFormat,
 };
-
-pub enum Primitive {
-  Plane(Option<(usize, usize)>),
-  Circle(Option<usize>),
-  Sphere(Option<usize>),
-  Cube,
-}
 
 pub struct Material {
   pub vertex_colors: Vec<[f32; 3]>,
   pub texture_coordinates: Vec<[f32; 2]>,
+  pub texture_src: String,
 }
 
 pub struct Geometry {
@@ -54,12 +51,21 @@ pub struct Mesh {
   pub index_count: u32,
   pub vertex_buffer: GpuBuffer,
   pub vertex_colors: GpuBuffer,
-  pub texture_coordinates: GpuBuffer,
   pub index_buffer: GpuBuffer,
+  pub uniform_buffer: GpuBuffer,
+  pub uniform_bind_group: GpuBindGroup,
+  pub texture_bind_group: GpuBindGroup,
+  pub texture_coordinates: GpuBuffer,
 }
 
 impl Mesh {
-  pub fn new(device: &GpuDevice, geometry: &Geometry, material: &Material) -> Self {
+  pub async fn new(
+    renderer: &Renderer,
+    geometry: &Geometry,
+    material: &Material,
+  ) -> Result<Self, JsValue> {
+    let device = renderer.device();
+    let pipeline = renderer.pipeline();
     let size = geometry.vertices.len() * 3 * 4;
     let size = size + 3 & !3;
     let vertex_buffer = {
@@ -104,9 +110,23 @@ impl Mesh {
       vertex_buffer.unmap();
       vertex_buffer
     };
-    let size = material.texture_coordinates.len() * 2 * 4;
-    let size = size + 3 & !3;
+    let uniform_buffer = device.create_buffer(&GpuBufferDescriptor::new(
+      16. * 4.,
+      gpu_buffer_usage::UNIFORM | gpu_buffer_usage::COPY_DST,
+    ));
+
+    let uniform_bind_group = renderer
+      .device()
+      .create_bind_group(&GpuBindGroupDescriptor::new(
+        &iter_to_array(&[JsValue::from(&GpuBindGroupEntry::new(
+          0,
+          &GpuBufferBinding::new(&uniform_buffer),
+        ))]),
+        &pipeline.get_bind_group_layout(0),
+      ));
     let texture_coordinates = {
+      let size = material.texture_coordinates.len() * 2 * 4;
+      let size = size + 3 & !3;
       let texure_coordinates = device.create_buffer(
         &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
       );
@@ -121,13 +141,65 @@ impl Mesh {
       texure_coordinates.unmap();
       texure_coordinates
     };
-    Self {
+    let mut sampler_desc = GpuSamplerDescriptor::new();
+    sampler_desc.address_mode_u(GpuAddressMode::Repeat);
+    sampler_desc.address_mode_v(GpuAddressMode::Repeat);
+    sampler_desc.mag_filter(GpuFilterMode::Linear);
+    let sampler = device.create_sampler_with_descriptor(&sampler_desc);
+    let image = gloo_utils::document()
+      .create_element("img")?
+      .dyn_into::<web_sys::HtmlImageElement>()?;
+    image.set_attribute("src", &material.texture_src)?;
+    let texture = device.create_texture(&GpuTextureDescriptor::new(
+      GpuTextureFormat::Rgba8unormSrgb,
+      &iter_to_array([image.width() as i32, image.height() as i32]),
+      gpu_texture_usage::TEXTURE_BINDING
+        | gpu_texture_usage::COPY_DST
+        | gpu_texture_usage::RENDER_ATTACHMENT,
+    ));
+    let bitmap =
+      JsFuture::from(window().create_image_bitmap_with_html_image_element(&image)?).await?;
+    let mut source = GpuImageCopyExternalImage::new(&Object::new());
+    source.flip_y(true);
+    source.source(&Object::from(bitmap));
+    let rect = &JsValue::from_serde(&Rect {
+      width: image.width(),
+      height: image.height(),
+    })
+    .map_err(|e| JsValue::from(format!("{:?}", e)))?;
+    device
+      .queue()
+      .copy_external_image_to_texture_with_u32_sequence(
+        &source,
+        &GpuImageCopyTextureTagged::new(&texture),
+        &rect,
+      );
+    let texture_bind_group = renderer
+      .device()
+      .create_bind_group(&GpuBindGroupDescriptor::new(
+        &iter_to_array(&[
+          JsValue::from(&GpuBindGroupEntry::new(0, &sampler)),
+          JsValue::from(&GpuBindGroupEntry::new(1, &texture.create_view())),
+        ]),
+        &pipeline.get_bind_group_layout(1),
+      ));
+
+    Ok(Self {
       vertext_count: geometry.vertices.len() as u32,
       index_count: geometry.indices.len() as u32,
       vertex_buffer,
       index_buffer,
       vertex_colors,
+      uniform_buffer,
+      uniform_bind_group,
+      texture_bind_group,
       texture_coordinates,
-    }
+    })
   }
+}
+
+#[derive(Serialize)]
+pub struct Rect {
+  width: u32,
+  height: u32,
 }

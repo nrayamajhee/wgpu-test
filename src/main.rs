@@ -2,15 +2,15 @@ mod mesh;
 mod renderer;
 mod viewport;
 
-use genmesh::generators::{Cube, IcoSphere, Plane};
+use genmesh::generators::{Cube, IcoSphere};
 use gloo_console::log;
 use gloo_timers::callback::Timeout;
 use gloo_utils::{body, document, window};
-use mesh::Primitive;
-use nalgebra::Similarity3;
+use js_sys::Array;
+use nalgebra::{Matrix4, Similarity};
 use viewport::Viewport;
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlCanvasElement, HtmlImageElement};
+use web_sys::HtmlCanvasElement;
 
 use mesh::{Geometry, Material, Mesh};
 use renderer::Renderer;
@@ -18,6 +18,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use rapier3d::prelude::*;
+
+pub fn iter_to_array<T>(iterable: impl IntoIterator<Item = T>) -> Array
+where
+  T: Into<JsValue>,
+{
+  iterable.into_iter().map(|v| v.into()).collect::<Array>()
+}
 
 fn main() {
   wasm_bindgen_futures::spawn_local(async move {
@@ -37,11 +44,13 @@ async fn async_main() -> Result<(), JsValue> {
   let mat = Material {
     vertex_colors: geo.vertices.iter().map(|_| [1., 0., 0.]).collect(),
     texture_coordinates: vec![],
+    texture_src: "/img/icon.png".to_string(),
   };
-  let mesh = Mesh::new(renderer.device(), &geo, &mat);
-  let geo = Geometry::from_genmesh(&Plane::new());
+  let cube = Mesh::new(&renderer, &geo, &mat).await?;
+  let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
   let mat = Material {
     vertex_colors: geo.vertices.iter().map(|_| [0., 1., 0.]).collect(),
+    texture_src: "/img/icon.png".to_string(),
     texture_coordinates: geo
       .vertices
       .iter()
@@ -49,15 +58,22 @@ async fn async_main() -> Result<(), JsValue> {
       .collect(),
   };
 
-  let mesh2 = Mesh::new(renderer.device(), &geo, &mat);
+  let sphere = Mesh::new(&renderer, &geo, &mat).await?;
 
-  let mut rigid_body_set = RigidBodySet::new();
-  let mut collider_set = ColliderSet::new();
   let body1 = RigidBodyBuilder::dynamic()
     .sleeping(false)
     .angvel(Vector::y())
     .build();
+  let body2 = RigidBodyBuilder::fixed()
+    .translation(vector![0., 0., 0.])
+    .build();
+
+  let mut rigid_body_set = RigidBodySet::new();
+  let mut collider_set = ColliderSet::new();
+
   let handle1 = rigid_body_set.insert(body1);
+  let handle2 = rigid_body_set.insert(body2);
+
   let gravity = vector![0.0, 0.0, 0.0];
   let integration_parameters = IntegrationParameters::default();
   let mut physics_pipeline = PhysicsPipeline::new();
@@ -70,32 +86,36 @@ async fn async_main() -> Result<(), JsValue> {
   let physics_hooks = ();
   let event_handler = ();
 
-  let handles = vec![handle1];
-  let meshes = vec![mesh];
+  let handles = vec![handle1, handle2];
+  let scales = vec![1., 1.5];
+  let meshes = vec![cube, sphere];
 
   on_animation_frame(
     move |_| {
-      for (mesh, handle) in meshes.iter().zip(handles.iter()) {
-        physics_pipeline.step(
-          &gravity,
-          &integration_parameters,
-          &mut island_manager,
-          &mut broad_phase,
-          &mut narrow_phase,
-          &mut rigid_body_set,
-          &mut collider_set,
-          &mut impulse_joint_set,
-          &mut multibody_joint_set,
-          &mut ccd_solver,
-          None,
-          &physics_hooks,
-          &event_handler,
-        );
-        let body = rigid_body_set.get(*handle).unwrap();
-        let model = Similarity3::from_isometry(*body.position(), 1.).to_homogeneous();
-        let model_view_proj = viewport.view_proj() * model;
-        renderer.render(mesh, model_view_proj);
-      }
+      physics_pipeline.step(
+        &gravity,
+        &integration_parameters,
+        &mut island_manager,
+        &mut broad_phase,
+        &mut narrow_phase,
+        &mut rigid_body_set,
+        &mut collider_set,
+        &mut impulse_joint_set,
+        &mut multibody_joint_set,
+        &mut ccd_solver,
+        None,
+        &physics_hooks,
+        &event_handler,
+      );
+      let bodies: Vec<Matrix4<f32>> = handles
+        .iter()
+        .zip(scales.iter())
+        .map(|(handle, scale)| {
+          let body = rigid_body_set.get(*handle).unwrap();
+          Similarity::from_isometry(*body.position(), *scale).to_homogeneous()
+        })
+        .collect();
+      renderer.render(&meshes, &bodies, viewport.view_proj());
     },
     None,
   );

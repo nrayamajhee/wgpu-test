@@ -1,25 +1,21 @@
+use crate::iter_to_array;
 use crate::mesh::Mesh;
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
-use js_sys::Array;
 use js_sys::Float32Array;
-use js_sys::Object;
+use nalgebra::Matrix4;
 use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::gpu_buffer_usage;
 use web_sys::{
-  gpu_texture_usage, GpuAdapter, GpuAddressMode, GpuBindGroup, GpuBindGroupDescriptor,
-  GpuBindGroupEntry, GpuBuffer, GpuBufferBinding, GpuBufferDescriptor, GpuCanvasAlphaMode,
-  GpuCanvasConfiguration, GpuCanvasContext, GpuColorTargetState, GpuCompareFunction, GpuCullMode,
-  GpuDepthStencilState, GpuDevice, GpuFilterMode, GpuFragmentState, GpuFrontFace,
-  GpuImageCopyExternalImage, GpuImageCopyTextureTagged, GpuIndexFormat, GpuLoadOp,
-  GpuPrimitiveState, GpuPrimitiveTopology, GpuRenderPassColorAttachment,
-  GpuRenderPassDepthStencilAttachment, GpuRenderPassDescriptor, GpuRenderPipeline,
-  GpuRenderPipelineDescriptor, GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp,
-  GpuTexture, GpuTextureDescriptor, GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout,
-  GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
+  gpu_texture_usage, GpuAdapter, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
+  GpuColorTargetState, GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice,
+  GpuFragmentState, GpuFrontFace, GpuIndexFormat, GpuLoadOp, GpuPrimitiveState,
+  GpuPrimitiveTopology, GpuRenderPassColorAttachment, GpuRenderPassDepthStencilAttachment,
+  GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor,
+  GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor, GpuTextureFormat,
+  GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
 };
 
 pub struct Renderer {
@@ -31,9 +27,6 @@ pub struct Renderer {
   color_attachment: GpuRenderPassColorAttachment,
   depth_attachment: GpuRenderPassDepthStencilAttachment,
   render_pass_descriptor: GpuRenderPassDescriptor,
-  uniform_buffer: GpuBuffer,
-  uniform_buffer_bind_group: GpuBindGroup,
-  texture_bind_group: GpuBindGroup,
 }
 
 impl Renderer {
@@ -90,42 +83,6 @@ impl Renderer {
     let mut render_pass_descriptor =
       GpuRenderPassDescriptor::new(&iter_to_array(&[JsValue::from(&color_attachment)]));
     render_pass_descriptor.depth_stencil_attachment(&depth_attachment);
-    let uniform_buffer = device.create_buffer(&GpuBufferDescriptor::new(
-      16. * 4.,
-      gpu_buffer_usage::UNIFORM | gpu_buffer_usage::COPY_DST,
-    ));
-    let mut sampler_desc = GpuSamplerDescriptor::new();
-    sampler_desc.address_mode_u(GpuAddressMode::Repeat);
-    sampler_desc.address_mode_v(GpuAddressMode::Repeat);
-    sampler_desc.mag_filter(GpuFilterMode::Linear);
-    let sampler = device.create_sampler_with_descriptor(&sampler_desc);
-    let image = gloo_utils::document()
-      .create_element("img")?
-      .dyn_into::<web_sys::HtmlImageElement>()?;
-    image.set_attribute("src", "img/icon.png").unwrap();
-    let tex = device.create_texture(&GpuTextureDescriptor::new(
-      GpuTextureFormat::Rgba8unormSrgb,
-      &iter_to_array([image.width() as i32, image.height() as i32]),
-      gpu_texture_usage::TEXTURE_BINDING
-        | gpu_texture_usage::COPY_DST
-        | gpu_texture_usage::RENDER_ATTACHMENT,
-    ));
-    let bitmap =
-      JsFuture::from(window().create_image_bitmap_with_html_image_element(&image)?).await?;
-    let mut source = GpuImageCopyExternalImage::new(&Object::new());
-    source.flip_y(true);
-    source.source(&Object::from(bitmap));
-    device
-      .queue()
-      .copy_external_image_to_texture_with_u32_sequence(
-        &source,
-        &GpuImageCopyTextureTagged::new(&tex),
-        &JsValue::from_serde(&Rect {
-          width: image.width(),
-          height: image.height(),
-        })
-        .unwrap(),
-      );
     let pipeline = {
       let shader =
         device.create_shader_module(&GpuShaderModuleDescriptor::new(include_str!("shader.wgsl")));
@@ -155,7 +112,7 @@ impl Renderer {
           .fragment(&fragment_state)
           .primitive(
             &GpuPrimitiveState::new()
-              .front_face(GpuFrontFace::Cw)
+              .front_face(GpuFrontFace::Ccw)
               .cull_mode(GpuCullMode::Back)
               .topology(GpuPrimitiveTopology::TriangleList),
           )
@@ -166,32 +123,15 @@ impl Renderer {
           ),
       )
     };
-    let uniform_buffer_bind_group = device.create_bind_group(&GpuBindGroupDescriptor::new(
-      &iter_to_array(&[JsValue::from(&GpuBindGroupEntry::new(
-        0,
-        &GpuBufferBinding::new(&uniform_buffer),
-      ))]),
-      &pipeline.get_bind_group_layout(0),
-    ));
-    let texture_bind_group = device.create_bind_group(&GpuBindGroupDescriptor::new(
-      &iter_to_array(&[
-        JsValue::from(&GpuBindGroupEntry::new(0, &sampler)),
-        JsValue::from(&GpuBindGroupEntry::new(1, &tex.create_view())),
-      ]),
-      &pipeline.get_bind_group_layout(1),
-    ));
     Ok(Self {
       canvas,
       context,
       device,
       depth_texture,
-      uniform_buffer,
       depth_attachment,
       color_attachment,
       pipeline,
       render_pass_descriptor,
-      uniform_buffer_bind_group,
-      texture_bind_group,
     })
   }
   pub fn canvas(&self) -> &HtmlCanvasElement {
@@ -200,8 +140,11 @@ impl Renderer {
   pub fn device(&self) -> &GpuDevice {
     &self.device
   }
-  pub fn render(&mut self, mesh: &Mesh, model_view_proj: nalgebra::Matrix4<f32>) {
-    let command_encoder = self.device.create_command_encoder();
+  pub fn pipeline(&self) -> &GpuRenderPipeline {
+    &self.pipeline
+  }
+  pub fn render(&mut self, meshes: &[Mesh], models: &[Matrix4<f32>], view_proj: Matrix4<f32>) {
+    let queue = self.device.queue();
     self
       .color_attachment
       .view(&self.context.get_current_texture().create_view());
@@ -211,6 +154,7 @@ impl Renderer {
     self
       .render_pass_descriptor
       .depth_stencil_attachment(&self.depth_attachment);
+    let command_encoder = self.device.create_command_encoder();
     let pass_encoder = command_encoder.begin_render_pass(&self.render_pass_descriptor);
     pass_encoder.set_pipeline(&self.pipeline);
     pass_encoder.set_viewport(
@@ -222,19 +166,20 @@ impl Renderer {
       1.,
     );
     pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
-    let queue = self.device.queue();
-    pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
-    pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
-    pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
-    pass_encoder.set_bind_group(0, &self.uniform_buffer_bind_group);
-    pass_encoder.set_bind_group(1, &self.texture_bind_group);
-    let model_view_proj = Float32Array::from(model_view_proj.as_slice());
-    queue.write_buffer_with_u32_and_buffer_source(&self.uniform_buffer, 0, &model_view_proj);
-    pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
-    pass_encoder.draw_indexed(mesh.index_count);
+    for (mesh, model) in meshes.iter().zip(models.iter()) {
+      pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
+      pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
+      pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
+      pass_encoder.set_bind_group(1, &mesh.texture_bind_group);
+      pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
+      let model_view_proj = view_proj * model;
+      let model_view_proj = Float32Array::from(model_view_proj.as_slice());
+      queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &model_view_proj);
+      pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
+      pass_encoder.draw_indexed(mesh.index_count);
+    }
     pass_encoder.end();
-    let commands = command_encoder.finish();
-    queue.submit(&iter_to_array(&[commands]));
+    queue.submit(&iter_to_array(&[command_encoder.finish()]));
   }
   pub fn resize(&self) {
     let (width, height) = get_window_dimension();
@@ -259,23 +204,10 @@ pub fn get_window_dimension() -> (u32, u32) {
   )
 }
 
-pub fn iter_to_array<T>(iterable: impl IntoIterator<Item = T>) -> Array
-where
-  T: Into<JsValue>,
-{
-  iterable.into_iter().map(|v| v.into()).collect::<Array>()
-}
-
 #[derive(Serialize)]
 pub struct Color {
   r: f32,
   g: f32,
   b: f32,
   a: f32,
-}
-
-#[derive(Serialize)]
-pub struct Rect {
-  width: u32,
-  height: u32,
 }
