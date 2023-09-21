@@ -7,6 +7,7 @@ use gloo_console::log;
 use gloo_timers::callback::Timeout;
 use gloo_utils::{body, document, window};
 use mesh::Primitive;
+use nalgebra::Similarity3;
 use viewport::Viewport;
 use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, HtmlImageElement};
@@ -15,6 +16,8 @@ use mesh::{Geometry, Material, Mesh};
 use renderer::Renderer;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+use rapier3d::prelude::*;
 
 fn main() {
   wasm_bindgen_futures::spawn_local(async move {
@@ -30,7 +33,7 @@ async fn async_main() -> Result<(), JsValue> {
   let mut renderer = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
   let viewport = Viewport::new(renderer.canvas());
 
-  let geo = Geometry::from_genmesh(&IcoSphere::new());
+  let geo = Geometry::from_genmesh(&Cube::new());
   let mat = Material {
     vertex_colors: geo.vertices.iter().map(|_| [1., 0., 0.]).collect(),
     texture_coordinates: vec![],
@@ -48,11 +51,51 @@ async fn async_main() -> Result<(), JsValue> {
 
   let mesh2 = Mesh::new(renderer.device(), &geo, &mat);
 
-  let meshes = vec![mesh, mesh2];
+  let mut rigid_body_set = RigidBodySet::new();
+  let mut collider_set = ColliderSet::new();
+  let body1 = RigidBodyBuilder::dynamic()
+    .sleeping(false)
+    .angvel(Vector::y())
+    .build();
+  let handle1 = rigid_body_set.insert(body1);
+  let gravity = vector![0.0, 0.0, 0.0];
+  let integration_parameters = IntegrationParameters::default();
+  let mut physics_pipeline = PhysicsPipeline::new();
+  let mut island_manager = IslandManager::new();
+  let mut broad_phase = BroadPhase::new();
+  let mut narrow_phase = NarrowPhase::new();
+  let mut impulse_joint_set = ImpulseJointSet::new();
+  let mut multibody_joint_set = MultibodyJointSet::new();
+  let mut ccd_solver = CCDSolver::new();
+  let physics_hooks = ();
+  let event_handler = ();
+
+  let handles = vec![handle1];
+  let meshes = vec![mesh];
 
   on_animation_frame(
     move |_| {
-      renderer.render(&meshes, &viewport);
+      for (mesh, handle) in meshes.iter().zip(handles.iter()) {
+        physics_pipeline.step(
+          &gravity,
+          &integration_parameters,
+          &mut island_manager,
+          &mut broad_phase,
+          &mut narrow_phase,
+          &mut rigid_body_set,
+          &mut collider_set,
+          &mut impulse_joint_set,
+          &mut multibody_joint_set,
+          &mut ccd_solver,
+          None,
+          &physics_hooks,
+          &event_handler,
+        );
+        let body = rigid_body_set.get(*handle).unwrap();
+        let model = Similarity3::from_isometry(*body.position(), 1.).to_homogeneous();
+        let model_view_proj = viewport.view_proj() * model;
+        renderer.render(mesh, model_view_proj);
+      }
     },
     None,
   );

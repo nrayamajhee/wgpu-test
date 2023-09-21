@@ -1,5 +1,4 @@
 use crate::mesh::Mesh;
-use crate::viewport::Viewport;
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Array;
@@ -186,11 +185,11 @@ impl Renderer {
       context,
       device,
       depth_texture,
-      color_attachment,
-      depth_attachment,
-      render_pass_descriptor,
-      pipeline,
       uniform_buffer,
+      depth_attachment,
+      color_attachment,
+      pipeline,
+      render_pass_descriptor,
       uniform_buffer_bind_group,
       texture_bind_group,
     })
@@ -201,7 +200,7 @@ impl Renderer {
   pub fn device(&self) -> &GpuDevice {
     &self.device
   }
-  pub fn render(&mut self, meshes: &[Mesh], viewport: &Viewport) {
+  pub fn render(&mut self, mesh: &Mesh, model_view_proj: nalgebra::Matrix4<f32>) {
     let command_encoder = self.device.create_command_encoder();
     self
       .color_attachment
@@ -224,17 +223,15 @@ impl Renderer {
     );
     pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
     let queue = self.device.queue();
-    for mesh in meshes {
-      pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
-      pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
-      pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
-      pass_encoder.set_bind_group(0, &self.uniform_buffer_bind_group);
-      pass_encoder.set_bind_group(1, &self.texture_bind_group);
-      let view_proj = Float32Array::from(viewport.view_proj().as_slice());
-      queue.write_buffer_with_u32_and_buffer_source(&self.uniform_buffer, 0, &view_proj);
-      pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
-      pass_encoder.draw_indexed(mesh.index_count);
-    }
+    pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
+    pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
+    pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
+    pass_encoder.set_bind_group(0, &self.uniform_buffer_bind_group);
+    pass_encoder.set_bind_group(1, &self.texture_bind_group);
+    let model_view_proj = Float32Array::from(model_view_proj.as_slice());
+    queue.write_buffer_with_u32_and_buffer_source(&self.uniform_buffer, 0, &model_view_proj);
+    pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
+    pass_encoder.draw_indexed(mesh.index_count);
     pass_encoder.end();
     let commands = command_encoder.finish();
     queue.submit(&iter_to_array(&[commands]));
