@@ -6,6 +6,7 @@ edition = "2021"
 
 [dependencies]
 fluid = { git = "https://github.com/nrayamajhee/fluid.git" }
+fluid-macro = { git = "https://github.com/nrayamajhee/fluid.git" }
 wasm-bindgen-futures = "0.4.37"
 genmesh = "0.6.2"
 js-sys = "0.3.64"
@@ -28,6 +29,8 @@ features = [
   "Window",
   "HtmlCanvasElement",
   "HtmlImageElement",
+  "HtmlElement",
+  "DomTokenList",
   "GpuDevice",
   "GpuQueue",
   "GpuAdapter",

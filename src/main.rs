@@ -2,6 +2,8 @@ mod mesh;
 mod renderer;
 mod viewport;
 
+use fluid::{js_closure, Context};
+use fluid_macro::html;
 use genmesh::generators::{Cube, IcoSphere};
 use gloo_console::log;
 use gloo_timers::callback::Timeout;
@@ -10,7 +12,7 @@ use js_sys::Array;
 use nalgebra::{Matrix4, Similarity};
 use viewport::Viewport;
 use wasm_bindgen::prelude::*;
-use web_sys::HtmlCanvasElement;
+use web_sys::{DomTokenList, Element, HtmlCanvasElement};
 
 use mesh::{Geometry, Material, Mesh};
 use renderer::Renderer;
@@ -35,8 +37,57 @@ fn main() {
 }
 
 async fn async_main() -> Result<(), JsValue> {
+  let ctx = Context::new();
+  let paused = ctx.create_signal(true);
+  ctx.create_effect(move || {});
   let canvas = document().create_element("canvas")?;
   body().append_child(&canvas)?;
+  let ui = html! {
+      // div class=(format!("overlay {}",if paused.get() {"visible"} else {""})) {
+      div class="overlay shown" {
+          div class="pause-menu" {
+           h1 {"Pause Menu" }
+           div class="buttons" {
+               button class="resume-btn" { "Resume" }
+               button { "Dummy" }
+           }
+          }
+      }
+  };
+  body().append_child(&ui)?;
+  {
+    let paused = paused.clone();
+    let cl = js_closure(move |_| {
+      paused.set(false);
+    });
+    document()
+      .query_selector(".resume-btn")
+      .unwrap()
+      .unwrap()
+      .add_event_listener_with_callback("click", cl.as_ref().unchecked_ref())?;
+    cl.forget();
+  }
+  {
+    let paused = paused.clone();
+    let cl = js_closure(move |_| {
+      if !*paused.get() {
+        paused.set(true)
+      }
+    });
+    window().add_event_listener_with_callback("keydown", cl.as_ref().unchecked_ref())?;
+    cl.forget();
+  }
+  {
+    let paused = paused.clone();
+    ctx.create_effect(move || {
+      let overlay = document().query_selector(".overlay").unwrap().unwrap();
+      if *paused.get() {
+        overlay.class_list().add_1("shown").unwrap();
+      } else {
+        overlay.class_list().remove_1("shown").unwrap();
+      }
+    });
+  }
   let mut renderer = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
   let viewport = Viewport::new(renderer.canvas());
 
@@ -65,7 +116,7 @@ async fn async_main() -> Result<(), JsValue> {
     .angvel(Vector::y())
     .build();
   let body2 = RigidBodyBuilder::fixed()
-    .translation(vector![0., 0., 0.])
+    .translation(vector![4., 0., 0.])
     .build();
 
   let mut rigid_body_set = RigidBodySet::new();
@@ -86,9 +137,19 @@ async fn async_main() -> Result<(), JsValue> {
   let physics_hooks = ();
   let event_handler = ();
 
-  let handles = vec![handle1, handle2];
-  let scales = vec![1., 1.5];
   let meshes = vec![cube, sphere];
+  let handles = vec![handle1, handle2];
+  let scales = vec![1., 1.];
+
+  let bodies: Vec<Matrix4<f32>> = handles
+    .iter()
+    .zip(scales.iter())
+    .map(|(handle, scale)| {
+      let body = rigid_body_set.get(*handle).unwrap();
+      Similarity::from_isometry(*body.position(), *scale).to_homogeneous()
+    })
+    .collect();
+  renderer.render(&meshes, &bodies, viewport.view_proj());
 
   on_animation_frame(
     move |_| {
@@ -115,7 +176,9 @@ async fn async_main() -> Result<(), JsValue> {
           Similarity::from_isometry(*body.position(), *scale).to_homogeneous()
         })
         .collect();
-      renderer.render(&meshes, &bodies, viewport.view_proj());
+      if !*paused.get() {
+        renderer.render(&meshes, &bodies, viewport.view_proj());
+      }
     },
     None,
   );

@@ -1,4 +1,81 @@
+:root {
+  --rad: 5px;
+  --pad: 10px;
+  --gap: 20px;
+}
+
 body {
-  margin: 0;
   overflow: hidden;
+  background: black;
+  color: white;
+  font:
+    16px/1.5 "Inter",
+    sans-serif;
+}
+
+body,
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+ul {
+  margin: 0;
+}
+
+canvas {
+  display: block;
+  z-index: 1;
+  position: fixed;
+}
+
+.overlay {
+  z-index: 2;
+  position: fixed;
+  width: 100vw;
+  height: 100vh;
+  overflow-y: auto;
+  place-items: center;
+  display: none;
+}
+
+.overlay.shown {
+  display: grid;
+}
+
+.pause-menu {
+  width: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  border-radius: var(--rad);
+}
+
+.pause-menu h1 {
+  text-align: center;
+}
+
+button {
+  border: none;
+  color: white;
+  font:
+    16px/1 "Inter",
+    sans-serif;
+  cursor: pointer;
+  border-radius: var(--rad);
+  padding: var(--pad);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.buttons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap);
+  align-items: center;
 }
