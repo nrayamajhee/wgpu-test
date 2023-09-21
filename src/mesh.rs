@@ -10,10 +10,10 @@ use serde::Serialize;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-  gpu_buffer_usage, gpu_texture_usage, GpuAddressMode, GpuBindGroup, GpuBindGroupDescriptor,
+  gpu_buffer_usage, gpu_texture_usage, Blob, GpuAddressMode, GpuBindGroup, GpuBindGroupDescriptor,
   GpuBindGroupEntry, GpuBuffer, GpuBufferBinding, GpuBufferDescriptor, GpuFilterMode,
   GpuImageCopyExternalImage, GpuImageCopyTextureTagged, GpuSamplerDescriptor, GpuTextureDescriptor,
-  GpuTextureFormat,
+  GpuTextureFormat, ImageBitmap, Response,
 };
 
 pub struct Material {
@@ -146,27 +146,25 @@ impl Mesh {
     sampler_desc.address_mode_v(GpuAddressMode::Repeat);
     sampler_desc.mag_filter(GpuFilterMode::Linear);
     let sampler = device.create_sampler_with_descriptor(&sampler_desc);
-    let image = gloo_utils::document()
-      .create_element("img")?
-      .dyn_into::<web_sys::HtmlImageElement>()?;
-    image.set_attribute("src", &material.texture_src)?;
+    let res = JsFuture::from(window().fetch_with_str(&material.texture_src))
+      .await?
+      .dyn_into::<Response>()?;
+    let blob = JsFuture::from(res.blob()?).await?.dyn_into::<Blob>()?;
+    let bitmap = JsFuture::from(window().create_image_bitmap_with_blob(&blob)?).await?;
+    let image = bitmap.dyn_into::<ImageBitmap>()?;
+    let (width, height) = (image.width(), image.height());
+    let mut source = GpuImageCopyExternalImage::new(&Object::new());
+    source.flip_y(true);
+    source.source(&Object::from(image));
     let texture = device.create_texture(&GpuTextureDescriptor::new(
       GpuTextureFormat::Rgba8unormSrgb,
-      &iter_to_array([image.width() as i32, image.height() as i32]),
+      &iter_to_array([width as i32, height as i32]),
       gpu_texture_usage::TEXTURE_BINDING
         | gpu_texture_usage::COPY_DST
         | gpu_texture_usage::RENDER_ATTACHMENT,
     ));
-    let bitmap =
-      JsFuture::from(window().create_image_bitmap_with_html_image_element(&image)?).await?;
-    let mut source = GpuImageCopyExternalImage::new(&Object::new());
-    source.flip_y(true);
-    source.source(&Object::from(bitmap));
-    let rect = &JsValue::from_serde(&Rect {
-      width: image.width(),
-      height: image.height(),
-    })
-    .map_err(|e| JsValue::from(format!("{:?}", e)))?;
+    let rect = &JsValue::from_serde(&Rect { width, height })
+      .map_err(|e| JsValue::from(format!("{:?}", e)))?;
     device
       .queue()
       .copy_external_image_to_texture_with_u32_sequence(
