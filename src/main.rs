@@ -103,13 +103,13 @@ async fn async_main() -> Result<(), JsValue> {
   let mat = Material {
     vertex_colors: geo.vertices.iter().map(|_| [1., 0., 0.]).collect(),
     texture_coordinates: vec![],
-    texture_src: "/img/icon.png".to_string(),
+    texture_src: "img/icon.png".to_string(),
   };
   let cube = Mesh::new(&renderer, &geo, &mat).await?;
   let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
   let mat = Material {
     vertex_colors: geo.vertices.iter().map(|_| [0., 1., 0.]).collect(),
-    texture_src: "/img/icon.png".to_string(),
+    texture_src: "img/icon.png".to_string(),
     texture_coordinates: geo
       .vertices
       .iter()
