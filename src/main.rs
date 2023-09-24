@@ -2,7 +2,7 @@ mod mesh;
 mod renderer;
 mod viewport;
 
-use fluid::{js_closure, Context};
+use fluid::Context;
 use fluid_macro::html;
 use genmesh::generators::{Cube, IcoSphere};
 use gloo_console::log;
@@ -12,7 +12,7 @@ use js_sys::Array;
 use nalgebra::{Matrix4, Similarity};
 use viewport::Viewport;
 use wasm_bindgen::prelude::*;
-use web_sys::{DomTokenList, Element, HtmlCanvasElement};
+use web_sys::{DomTokenList, Element, EventTarget, HtmlCanvasElement};
 
 use mesh::{Geometry, Material, Mesh};
 use renderer::Renderer;
@@ -42,50 +42,32 @@ async fn async_main() -> Result<(), JsValue> {
   ctx.create_effect(move || {});
   let canvas = document().create_element("canvas")?;
   body().append_child(&canvas)?;
-  let ui = html! {
-      // div class=(format!("overlay {}",if paused.get() {"visible"} else {""})) {
-      div class="overlay shown" {
-          div class="pause-menu" {
-           h1 {"Pause Menu" }
-           div class="buttons" {
-               button class="resume-btn" { "Resume" }
-               button { "Dummy" }
-           }
-          }
-      }
-  };
-  body().append_child(&ui)?;
   {
-    let paused = paused.clone();
-    let cl = js_closure(move |_| {
-      paused.set(false);
-    });
-    document()
-      .query_selector(".resume-btn")
-      .unwrap()
-      .unwrap()
-      .add_event_listener_with_callback("click", cl.as_ref().unchecked_ref())?;
-    cl.forget();
+    let p1 = paused.clone();
+    let p2 = paused.clone();
+    let ui = html! {
+        div class=[ctx, &format!("overlay {}",if *p1.get() {"shown"} else {""})] {
+            div class="pause-menu" {
+             h1 {"Pause Menu" }
+             div class="buttons" {
+                 button
+                 class="resume-btn"
+                 @click=(move |_| {
+                     p2.set(false);
+                 })
+                 { "Resume" }
+                 button { "Dummy" }
+             }
+            }
+        }
+    };
+    body().append_child(&ui)?;
   }
   {
     let paused = paused.clone();
-    let cl = js_closure(move |_| {
-      if !*paused.get() {
-        paused.set(true)
-      }
-    });
-    window().add_event_listener_with_callback("keydown", cl.as_ref().unchecked_ref())?;
-    cl.forget();
-  }
-  {
-    let paused = paused.clone();
-    ctx.create_effect(move || {
-      let overlay = document().query_selector(".overlay").unwrap().unwrap();
-      if *paused.get() {
-        overlay.class_list().add_1("shown").unwrap();
-      } else {
-        overlay.class_list().remove_1("shown").unwrap();
-      }
+    fluid::add_event_and_forget(&window(), "keydown", move |_| {
+      let p = *paused.get();
+      paused.set(!p)
     });
   }
   let mut renderer = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
