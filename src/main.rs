@@ -2,7 +2,7 @@ mod mesh;
 mod renderer;
 mod viewport;
 
-use fluid::Context;
+use fluid::{add_event_and_forget, Context};
 use fluid_macro::html;
 use genmesh::generators::{Cube, IcoSphere};
 use gloo_console::log;
@@ -12,7 +12,7 @@ use js_sys::Array;
 use nalgebra::{Matrix4, Similarity};
 use viewport::Viewport;
 use wasm_bindgen::prelude::*;
-use web_sys::{DomTokenList, Element, EventTarget, HtmlCanvasElement};
+use web_sys::{HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 use mesh::{Geometry, Material, Mesh};
 use renderer::Renderer;
@@ -39,12 +39,19 @@ fn main() {
 async fn async_main() -> Result<(), JsValue> {
   let ctx = Context::new();
   let paused = ctx.create_signal(true);
+  let fullscreen = ctx.create_signal(false);
+  let pointer_grabbed = ctx.create_signal(false);
   ctx.create_effect(move || {});
   let canvas = document().create_element("canvas")?;
   body().append_child(&canvas)?;
   {
     let p1 = paused.clone();
     let p2 = paused.clone();
+    let f1 = fullscreen.clone();
+    let f2 = fullscreen.clone();
+    let pg1 = pointer_grabbed.clone();
+    let pg2 = pointer_grabbed.clone();
+    let c1 = canvas.clone();
     let ui = html! {
         div class=[ctx, &format!("overlay {}",if *p1.get() {"shown"} else {""})] {
             div class="pause-menu" {
@@ -53,10 +60,25 @@ async fn async_main() -> Result<(), JsValue> {
                  button
                  class="resume-btn"
                  @click=(move |_| {
-                     p2.set(false);
+                     c1.request_pointer_lock();
                  })
                  { "Resume" }
-                 button { "Dummy" }
+                 button
+                 @click=(move |_| {
+                     if *f1.get() {
+                         document().exit_fullscreen();
+                     } else {
+                         document().document_element().unwrap().request_fullscreen().unwrap();
+                     }
+                 })
+                 {[
+                     ctx,
+                     if *f2.get() {
+                         "Exit fullscreen"
+                     } else {
+                         "Go fullscreeen"
+                     }
+                 ]}
              }
             }
         }
@@ -65,9 +87,13 @@ async fn async_main() -> Result<(), JsValue> {
   }
   {
     let paused = paused.clone();
-    fluid::add_event_and_forget(&window(), "keydown", move |_| {
-      let p = *paused.get();
-      paused.set(!p)
+    add_event_and_forget(&window(), "keydown", move |e| {
+      if e.dyn_into::<KeyboardEvent>().unwrap().key() == "Escape" {
+        let p = *paused.get();
+        if !p {
+            document().exit_pointer_lock();
+        }
+      }
     });
   }
   let mut renderer = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
@@ -96,9 +122,9 @@ async fn async_main() -> Result<(), JsValue> {
   let body1 = RigidBodyBuilder::dynamic()
     .sleeping(false)
     .angvel(Vector::y())
+    .translation(vector![4., 0., 0.])
     .build();
   let body2 = RigidBodyBuilder::fixed()
-    .translation(vector![4., 0., 0.])
     .build();
 
   let mut rigid_body_set = RigidBodySet::new();
@@ -133,6 +159,57 @@ async fn async_main() -> Result<(), JsValue> {
     .collect();
   renderer.render(&meshes, &bodies, viewport.view_proj());
 
+  let renderer = Rc::new(RefCell::new(renderer));
+  let viewport = Rc::new(RefCell::new(viewport));
+
+  {
+    let renderer = renderer.clone();
+    let viewport = viewport.clone();
+    fluid::add_event_and_forget(&window(), "resize", move |_| {
+      renderer.borrow_mut().resize();
+      viewport.borrow_mut().resize(&renderer.borrow().canvas());
+    });
+  }
+
+  {
+    let viewport = viewport.clone();
+
+    fluid::add_event_and_forget(&window(), "wheel", move |e| {
+      viewport
+        .borrow_mut()
+        .update_zoom(e.dyn_into::<WheelEvent>().unwrap().delta_y() as i32);
+    });
+  }
+  {
+    let viewport = viewport.clone();
+
+    add_event_and_forget(&window(), "mousemove", move |e| {
+      let me = e.dyn_into::<MouseEvent>().unwrap();
+      viewport
+        .borrow_mut()
+        .update_rot(me.movement_x(), me.movement_y(), 1.);
+    });
+  }
+  {
+    let pointer_grabbed = pointer_grabbed.clone();
+    let paused = paused.clone();
+    let viewport = viewport.clone();
+
+    add_event_and_forget(&document(), "pointerlockchange", move |_| {
+      let p = *paused.get();
+      paused.set(!p);
+      let p = *pointer_grabbed.get();
+      pointer_grabbed.set(!p);
+      viewport.borrow_mut().unlock();
+    });
+  }
+  {
+    add_event_and_forget(&document(), "fullscreenchange", move |_| {
+        let f = *fullscreen.get();
+        fullscreen.set(!f);
+    });
+  }
+
   on_animation_frame(
     move |_| {
       physics_pipeline.step(
@@ -159,7 +236,9 @@ async fn async_main() -> Result<(), JsValue> {
         })
         .collect();
       if !*paused.get() {
-        renderer.render(&meshes, &bodies, viewport.view_proj());
+        renderer
+          .borrow_mut()
+          .render(&meshes, &bodies, viewport.borrow().view_proj());
       }
     },
     None,
