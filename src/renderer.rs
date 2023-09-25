@@ -5,14 +5,24 @@ use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Float32Array;
 use js_sys::Object;
+use js_sys::Uint16Array;
 use js_sys::Uint8Array;
 use nalgebra::Matrix4;
+use nalgebra::Similarity;
+use nalgebra::Similarity3;
 use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
+use web_sys::Blob;
 use web_sys::GpuAddressMode;
+use web_sys::GpuBuffer;
+use web_sys::GpuBufferDescriptor;
 use web_sys::GpuFilterMode;
+use web_sys::GpuImageCopyExternalImage;
+use web_sys::ImageBitmap;
+use web_sys::Response;
+use web_sys::gpu_buffer_usage;
 use web_sys::{
   gpu_texture_usage, GpuAdapter, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
   GpuColorTargetState, GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice,
@@ -159,7 +169,7 @@ impl Renderer {
   pub fn pipeline(&self) -> &GpuRenderPipeline {
     &self.pipeline
   }
-  pub fn render(&mut self, meshes: &[Mesh], models: &[Matrix4<f32>], view_proj: Matrix4<f32>) {
+  pub fn render(&mut self, meshes: &[Mesh], models: &[Similarity3<f32>], view_proj: Matrix4<f32>) {
     let queue = self.device.queue();
     self
       .color_attachment
@@ -200,7 +210,7 @@ impl Renderer {
       }
 
       pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
-      let model_view_proj = Float32Array::from((view_proj * model).as_slice());
+      let model_view_proj = Float32Array::from((view_proj * model.to_homogeneous()).as_slice());
       queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &model_view_proj);
       pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
       pass_encoder.draw_indexed(mesh.index_count);
@@ -212,6 +222,58 @@ impl Renderer {
     let (width, height) = get_window_dimension();
     self.canvas.set_width(width);
     self.canvas.set_height(height);
+  }
+  pub fn create_buffer(&self, data: &[f32]) -> GpuBuffer {
+    let byte_len = data.len() * 4;
+    let size = byte_len + 3 & !3;
+    let buffer = self.device.create_buffer(
+      &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
+    );
+    let write_array = Float32Array::new(&buffer.get_mapped_range());
+    write_array.set(&Float32Array::from(&data[..]), 0);
+    buffer.unmap();
+    buffer
+  }
+  pub fn create_index_buffer(&self, data: &[u16]) -> GpuBuffer {
+    let size = data.len() * 2;
+    let size = size + 3 & !3;
+    let buffer = self.device.create_buffer(
+      &GpuBufferDescriptor::new(
+        size as f64,
+        gpu_buffer_usage::INDEX | gpu_buffer_usage::COPY_DST,
+      )
+      .mapped_at_creation(true),
+    );
+    let write_array = Uint16Array::new(&buffer.get_mapped_range());
+    write_array.set(&Uint16Array::from(&data[..]), 0);
+    buffer.unmap();
+    buffer
+  }
+  pub async fn create_image(
+      &self,
+    src: &str,
+  ) -> Result<(GpuTexture, GpuImageCopyExternalImage, Rect), JsValue> {
+    let res = JsFuture::from(window().fetch_with_str(src))
+      .await?
+      .dyn_into::<Response>()?;
+    let blob = JsFuture::from(res.blob()?).await?.dyn_into::<Blob>()?;
+    let bitmap = JsFuture::from(window().create_image_bitmap_with_blob(&blob)?).await?;
+    let image = bitmap.dyn_into::<ImageBitmap>()?;
+    let (width, height) = (image.width(), image.height());
+    let mut source = GpuImageCopyExternalImage::new(&Object::new());
+    source.flip_y(false);
+    source.source(&Object::from(image));
+    Ok((
+      self.device.create_texture(&GpuTextureDescriptor::new(
+        GpuTextureFormat::Rgba8unormSrgb,
+        &iter_to_array([width as i32, height as i32]),
+        gpu_texture_usage::TEXTURE_BINDING
+          | gpu_texture_usage::COPY_DST
+          | gpu_texture_usage::RENDER_ATTACHMENT,
+      )),
+      source,
+      Rect { width, height },
+    ))
   }
 }
 
@@ -237,4 +299,16 @@ pub struct Color {
   pub g: f32,
   pub b: f32,
   pub a: f32,
+}
+
+impl Color {
+  pub fn rgb(r: f32, g: f32, b: f32) -> Self {
+    Self { r, g, b, a: 1. }
+  }
+}
+
+#[derive(Serialize)]
+pub struct Rect {
+  width: u32,
+  height: u32,
 }

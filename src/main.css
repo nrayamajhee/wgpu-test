@@ -76,7 +76,8 @@ button {
   backdrop-filter: blur(10px);
 }
 
-button:hover, button:focus {
+button:hover,
+button:focus {
   background: rgba(255, 255, 255, 0.25);
 }
 

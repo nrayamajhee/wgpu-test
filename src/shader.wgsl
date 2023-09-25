@@ -49,7 +49,11 @@ fn fs_main(output: VertexOutput) -> @location(0) vec4<f32> {
       return vec4(output.vertex_colors,1.0);
     }
     case 2 {
-      return texel;
+      let a = texel.a;
+      let r = a * texel.r + (1 - a) * output.color.r;
+      let g = a * texel.g + (1 - a) * output.color.g;
+      let b = a * texel.b + (1 - a) * output.color.b;
+      return vec4(r,g,b,1.);
     }
     case 0, default {
       return output.color;

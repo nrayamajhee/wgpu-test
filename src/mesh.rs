@@ -64,7 +64,7 @@ impl Material {
       texture_src: src.to_string(),
       color: Color {
         r: 1.,
-        g: 1.,
+        g: 0.,
         b: 1.,
         a: 1.,
       },
@@ -99,19 +99,21 @@ impl Geometry {
 pub struct Mesh {
   pub vertext_count: u32,
   pub index_count: u32,
+  pub material_type: MaterialType,
+  pub color: Color,
+
   pub vertex_buffer: GpuBuffer,
   pub index_buffer: GpuBuffer,
+  pub vertex_colors: GpuBuffer,
+
   pub uniform_buffer: GpuBuffer,
   pub uniform_bind_group: GpuBindGroup,
 
   pub material_buffer: GpuBuffer,
-  pub color: Color,
-  pub material_type: MaterialType,
-  pub vertex_colors: GpuBuffer,
-  pub texture_coordinates: GpuBuffer,
-
-  pub texture_bind_group: Option<GpuBindGroup>,
   pub material_bind_group: GpuBindGroup,
+
+  pub texture_coordinates: GpuBuffer,
+  pub texture_bind_group: Option<GpuBindGroup>,
 }
 
 impl Mesh {
@@ -124,9 +126,9 @@ impl Mesh {
     let pipeline = renderer.pipeline();
     let vertex_buffer = {
       let vertices: Vec<f32> = geometry.vertices.iter().flatten().map(|f| *f).collect();
-      create_buffer(device, &vertices)
+      renderer.create_buffer(&vertices)
     };
-    let index_buffer = create_index_buffer(device, &geometry.indices);
+    let index_buffer = renderer.create_index_buffer(&geometry.indices);
     let vertex_colors = if material.material_type == MaterialType::VertexColor {
       let vertices: Vec<f32> = material
         .vertex_colors
@@ -134,9 +136,9 @@ impl Mesh {
         .flatten()
         .map(|f| *f)
         .collect();
-      create_buffer(device, &vertices)
+      renderer.create_buffer(&vertices)
     } else {
-      create_buffer(device, &[])
+      renderer.create_buffer(&[])
     };
     let texture_coordinates = if material.material_type == MaterialType::Textured {
       let vertices: Vec<f32> = material
@@ -145,13 +147,13 @@ impl Mesh {
         .map(|f| *f)
         .flatten()
         .collect();
-      create_buffer(device, &vertices[..])
+      renderer.create_buffer(&vertices[..])
     } else {
-      create_buffer(device, &[])
+      renderer.create_buffer(&[])
     };
 
     let texture_bind_group = if material.material_type == MaterialType::Textured {
-      let (texture, source, rect) = create_image(device, &material.texture_src).await?;
+      let (texture, source, rect) = renderer.create_image(&material.texture_src).await?;
       device
         .queue()
         .copy_external_image_to_texture_with_u32_sequence(
@@ -189,7 +191,6 @@ impl Mesh {
         &pipeline.get_bind_group_layout(0),
       ));
 
-    // let size = 4 * 4 + 4;
     let size = 32;
     let material_buffer = device.create_buffer(&GpuBufferDescriptor::new(
       size as f64,
@@ -209,77 +210,17 @@ impl Mesh {
     Ok(Self {
       vertext_count: geometry.vertices.len() as u32,
       index_count: geometry.indices.len() as u32,
+      material_type: material.material_type,
+      color: material.color,
       vertex_buffer,
       index_buffer,
       vertex_colors,
       uniform_buffer,
       uniform_bind_group,
-      texture_bind_group,
       texture_coordinates,
-      material_type: material.material_type,
+      texture_bind_group,
       material_buffer,
       material_bind_group,
-      color: material.color,
     })
   }
-}
-
-fn create_buffer(device: &GpuDevice, data: &[f32]) -> GpuBuffer {
-  let byte_len = data.len() * 4;
-  let size = byte_len + 3 & !3;
-  let buffer = device.create_buffer(
-    &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
-  );
-  let write_array = Float32Array::new(&buffer.get_mapped_range());
-  write_array.set(&Float32Array::from(&data[..]), 0);
-  buffer.unmap();
-  buffer
-}
-
-fn create_index_buffer(device: &GpuDevice, data: &[u16]) -> GpuBuffer {
-  let size = data.len() * 2;
-  let size = size + 3 & !3;
-  let buffer = device.create_buffer(
-    &GpuBufferDescriptor::new(
-      size as f64,
-      gpu_buffer_usage::INDEX | gpu_buffer_usage::COPY_DST,
-    )
-    .mapped_at_creation(true),
-  );
-  let write_array = Uint16Array::new(&buffer.get_mapped_range());
-  write_array.set(&Uint16Array::from(&data[..]), 0);
-  buffer.unmap();
-  buffer
-}
-async fn create_image(
-  device: &GpuDevice,
-  src: &str,
-) -> Result<(GpuTexture, GpuImageCopyExternalImage, Rect), JsValue> {
-  let res = JsFuture::from(window().fetch_with_str(src))
-    .await?
-    .dyn_into::<Response>()?;
-  let blob = JsFuture::from(res.blob()?).await?.dyn_into::<Blob>()?;
-  let bitmap = JsFuture::from(window().create_image_bitmap_with_blob(&blob)?).await?;
-  let image = bitmap.dyn_into::<ImageBitmap>()?;
-  let (width, height) = (image.width(), image.height());
-  let mut source = GpuImageCopyExternalImage::new(&Object::new());
-  source.flip_y(false);
-  source.source(&Object::from(image));
-  Ok((
-    device.create_texture(&GpuTextureDescriptor::new(
-      GpuTextureFormat::Rgba8unormSrgb,
-      &iter_to_array([width as i32, height as i32]),
-      gpu_texture_usage::TEXTURE_BINDING
-        | gpu_texture_usage::COPY_DST
-        | gpu_texture_usage::RENDER_ATTACHMENT,
-    )),
-    source,
-    Rect { width, height },
-  ))
-}
-
-#[derive(Serialize)]
-pub struct Rect {
-  width: u32,
-  height: u32,
 }
