@@ -21,7 +21,7 @@ impl Viewport {
       canvas.width() as f32 / canvas.height() as f32,
       PI * 0.4,
       0.1,
-      10000.,
+      100000.,
     );
     let eye = [0., 5., 10.].into();
     let view = Isometry3::look_at_rh(&eye, &target.translation.vector.into(), &Vector3::y());

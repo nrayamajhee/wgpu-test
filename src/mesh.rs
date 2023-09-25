@@ -39,7 +39,7 @@ impl Material {
       color,
     }
   }
-  pub fn vertex_coolor(colors: Vec<[f32; 3]>) -> Self {
+  pub fn vertex_color(colors: Vec<[f32; 3]>) -> Self {
     Self {
       material_type: MaterialType::VertexColor,
       vertex_colors: colors,
@@ -60,9 +60,9 @@ impl Material {
       texture_coordinates: coordinates,
       texture_src: vec![src.to_string()],
       color: Color {
-        r: 1.,
-        g: 0.,
-        b: 1.,
+        r: 0.1,
+        g: 0.1,
+        b: 0.1,
         a: 1.,
       },
     }

@@ -35,6 +35,7 @@ pub struct Renderer {
   context: GpuCanvasContext,
   device: GpuDevice,
   pipeline: GpuRenderPipeline,
+  pipeline_cubebox: GpuRenderPipeline,
   depth_texture: GpuTexture,
   color_attachment: GpuRenderPassColorAttachment,
   depth_attachment: GpuRenderPassDepthStencilAttachment,
@@ -96,7 +97,7 @@ impl Renderer {
     let mut render_pass_descriptor =
       GpuRenderPassDescriptor::new(&iter_to_array(&[JsValue::from(&color_attachment)]));
     render_pass_descriptor.depth_stencil_attachment(&depth_attachment);
-    let pipeline = {
+    let (pipeline, pipeline_cubebox) = {
       let shader =
         device.create_shader_module(&GpuShaderModuleDescriptor::new(include_str!("shader.wgsl")));
       let position_attribute_description =
@@ -119,21 +120,39 @@ impl Renderer {
         &shader,
         &iter_to_array(&[GpuColorTargetState::new(gpu.get_preferred_canvas_format())]),
       );
-      device.create_render_pipeline(
-        &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
-          .label("Render pipeline")
-          .fragment(&fragment_state)
-          .primitive(
-            &GpuPrimitiveState::new()
-              .front_face(GpuFrontFace::Cw)
-              .cull_mode(GpuCullMode::None)
-              .topology(GpuPrimitiveTopology::TriangleList),
-          )
-          .depth_stencil(
-            GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
-              .depth_compare(GpuCompareFunction::Less)
-              .depth_write_enabled(true),
-          ),
+      (
+        device.create_render_pipeline(
+          &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
+            .label("Defualt Render pipeline")
+            .fragment(&fragment_state)
+            .primitive(
+              &GpuPrimitiveState::new()
+                .front_face(GpuFrontFace::Ccw)
+                .cull_mode(GpuCullMode::Back)
+                .topology(GpuPrimitiveTopology::TriangleList),
+            )
+            .depth_stencil(
+              GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
+                .depth_compare(GpuCompareFunction::Less)
+                .depth_write_enabled(true),
+            ),
+        ),
+        device.create_render_pipeline(
+          &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
+            .label("Defualt Render pipeline")
+            .fragment(&fragment_state)
+            .primitive(
+              &GpuPrimitiveState::new()
+                .front_face(GpuFrontFace::Ccw)
+                .cull_mode(GpuCullMode::Front)
+                .topology(GpuPrimitiveTopology::TriangleList),
+            )
+            .depth_stencil(
+              GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
+                .depth_compare(GpuCompareFunction::Less)
+                .depth_write_enabled(true),
+            ),
+        ),
       )
     };
     let mut sampler_desc = GpuSamplerDescriptor::new();
@@ -149,6 +168,7 @@ impl Renderer {
       depth_attachment,
       color_attachment,
       pipeline,
+      pipeline_cubebox,
       render_pass_descriptor,
       sampler,
     })
@@ -178,7 +198,6 @@ impl Renderer {
       .depth_stencil_attachment(&self.depth_attachment);
     let command_encoder = self.device.create_command_encoder();
     let pass_encoder = command_encoder.begin_render_pass(&self.render_pass_descriptor);
-    pass_encoder.set_pipeline(&self.pipeline);
     pass_encoder.set_viewport(
       0.,
       0.,
@@ -187,8 +206,16 @@ impl Renderer {
       0.,
       1.,
     );
+    pass_encoder.set_pipeline(&self.pipeline);
     pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
+    let mut cubebox_end = false;
     for (mesh, model) in meshes.iter().zip(models.iter()) {
+      if mesh.material_type == MaterialType::CubeMap {
+        pass_encoder.set_pipeline(&self.pipeline_cubebox);
+        cubebox_end = true;
+      } else if cubebox_end {
+        pass_encoder.set_pipeline(&self.pipeline);
+      }
       pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
       pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
       pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);

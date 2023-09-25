@@ -3,6 +3,9 @@ mod renderer;
 mod scene;
 mod viewport;
 
+use nalgebra::Vector;
+use noise::{Curve, Fbm, NoiseFn, Perlin};
+
 use renderer::Color;
 
 use fluid::{add_event_and_forget, on_animation_frame, Context};
@@ -107,31 +110,28 @@ async fn async_main() -> Result<(), JsValue> {
     let body = RigidBodyBuilder::dynamic()
       .sleeping(false)
       .angvel(Vector::y())
-      .translation(vector![4., 0., 0.])
+      .translation(vector![4., 4., 0.])
       .build();
 
     scene.add("cube", mesh, body);
 
-    let geo = Geometry::from_genmesh(&Cube::new());
+    let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
     let mesh = Mesh::new(
       &renderer,
       &geo,
-      &Material::cubemap(
-        [
-          "img/milkyway/posx.jpg",
-          "img/milkyway/negx.jpg",
-          "img/milkyway/posy.jpg",
-          "img/milkyway/negy.jpg",
-          "img/milkyway/posz.jpg",
-          "img/milkyway/negz.jpg",
-        ]
-      ),
+      &Material::cubemap([
+        "img/milkyway/posx.jpg",
+        "img/milkyway/negx.jpg",
+        "img/milkyway/posy.jpg",
+        "img/milkyway/negy.jpg",
+        "img/milkyway/posz.jpg",
+        "img/milkyway/negz.jpg",
+      ]),
     )
     .await?;
 
-    let body = RigidBodyBuilder::fixed()
-      .build();
-    scene.add_w_scale("skybox", mesh, body, 1000.);
+    let body = RigidBodyBuilder::fixed().build();
+    scene.add_w_scale("skybox", mesh, body, 10000.);
 
     let mesh = Mesh::new(
       &renderer,
@@ -142,10 +142,60 @@ async fn async_main() -> Result<(), JsValue> {
 
     let body = RigidBodyBuilder::dynamic()
       .sleeping(true)
+      .translation(vector![0., 2., 0.])
       .additional_mass(2.)
       .build();
 
     scene.add("sphere", mesh, body);
+  }
+  {
+    let mut geo = Geometry::from_genmesh(&IcoSphere::subdivide(6));
+    let noise = Fbm::<Perlin>::new(0);
+
+    for v in geo.vertices.iter_mut() {
+      let noise = noise.get([v[0] as f64, v[1] as f64, v[2] as f64]);
+      let d = 1.0 + 0.05 * noise;
+      v[0] *= d as f32;
+      v[1] *= d as f32;
+      v[2] *= d as f32;
+    }
+    let mesh = Mesh::new(
+      &renderer,
+      &geo,
+      &Material::vertex_color(
+        geo
+          .vertices
+          .iter()
+          .map(|v| {
+            let pos = vector![v[0], v[1], v[2]];
+            [pos.magnitude() * 0.1, 0., 0.]
+          })
+          .collect(),
+      ),
+    )
+    .await?;
+
+    let body = RigidBodyBuilder::fixed()
+      .translation(vector![0., -1000., 0.])
+      .build();
+    scene.add_w_scale("lithosphere", mesh, body, 1000.);
+  }
+  {
+    let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
+    let mesh = Mesh::new(
+      &renderer,
+      &geo,
+      &Material::vertex_color(geo.vertices.clone()),
+    )
+    .await?;
+
+    let body = RigidBodyBuilder::dynamic()
+      .sleeping(true)
+      .translation(vector![-4., 1., 0.])
+      .additional_mass(2.)
+      .build();
+
+    scene.add("vertex_cube", mesh, body);
   }
 
   let viewport = Rc::new(RefCell::new(Viewport::new(renderer.canvas())));
