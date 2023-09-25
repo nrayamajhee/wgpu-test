@@ -37,8 +37,10 @@ canvas {
   width: 100vw;
   height: 100vh;
   overflow-y: auto;
-  place-items: center;
+  place-items: end center;
   display: none;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(30px);
 }
 
 .overlay.shown {
@@ -46,10 +48,13 @@ canvas {
 }
 
 .pause-menu {
-  width: 50%;
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  box-sizing: border-box;
   border-radius: var(--rad);
+  padding: var(--gap);
 }
 
 .pause-menu h1 {
@@ -62,14 +67,26 @@ button {
   font:
     16px/1 "Inter",
     sans-serif;
+  font-weight: bold;
   cursor: pointer;
   border-radius: var(--rad);
   padding: var(--pad);
-  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+button:hover, button:focus {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+button:focus {
+  border-color: rgba(255, 255, 255, 0.2);
+  outline: none;
 }
 
 button:active {
-  transform: translateY(1px);
+  transform: translateY(2px);
 }
 
 .buttons {
@@ -77,5 +94,4 @@ button:active {
   flex-direction: column;
   gap: var(--gap);
   padding: var(--gap);
-  align-items: center;
 }

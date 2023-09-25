@@ -86,7 +86,6 @@ async fn async_main() -> Result<(), JsValue> {
   }
   {
     add_event_and_forget(&document(), "fullscreenchange", move |_| {
-      gloo_console::log!("fullscreenchange");
       let f = *fullscreen.get();
       fullscreen.set(!f);
     });
@@ -272,23 +271,23 @@ async fn async_main() -> Result<(), JsValue> {
         &physics_hooks,
         &event_handler,
       );
-      let Movement { dx, dy } = *movement.borrow();
-      let body = rigid_body_set.get_mut(handle2).unwrap();
-      if dx == 0. && dy == 0. {
-        // body.reset_forces(true);
-      } else {
-        body.add_force(vector![dx * 0.01, 0., -dy * 0.01], true);
-      }
-      viewport.borrow_mut().follow(*body.position());
-      let bodies: Vec<Matrix4<f32>> = handles
-        .iter()
-        .zip(scales.iter())
-        .map(|(handle, scale)| {
-          let body = rigid_body_set.get(*handle).unwrap();
-          Similarity::from_isometry(*body.position(), *scale).to_homogeneous()
-        })
-        .collect();
       if !*paused.get() {
+        let Movement { dx, dy } = *movement.borrow();
+        let body = rigid_body_set.get_mut(handle2).unwrap();
+        if dx == 0. && dy == 0. {
+          // body.reset_forces(true);
+        } else {
+          body.add_force(vector![dx * 0.01, 0., -dy * 0.01], true);
+        }
+        viewport.borrow_mut().follow(*body.position());
+        let bodies: Vec<Matrix4<f32>> = handles
+          .iter()
+          .zip(scales.iter())
+          .map(|(handle, scale)| {
+            let body = rigid_body_set.get(*handle).unwrap();
+            Similarity::from_isometry(*body.position(), *scale).to_homogeneous()
+          })
+          .collect();
         renderer
           .borrow_mut()
           .render(&meshes, &bodies, viewport.borrow().view_proj());
