@@ -21,9 +21,9 @@ impl Viewport {
       canvas.width() as f32 / canvas.height() as f32,
       PI * 0.4,
       0.1,
-      10000.,
+      100000.,
     );
-    let eye = [0., 5., 10.].into();
+    let eye = [0., 0., 10.].into();
     let view = Isometry3::look_at_rh(&eye, &target.translation.vector.into(), &Vector3::y());
     Self {
       view,
@@ -42,9 +42,9 @@ impl Viewport {
   pub fn resize(&mut self, canvas: &HtmlCanvasElement) {
     self.proj = Perspective3::new(
       canvas.width() as f32 / canvas.height() as f32,
-      PI / 3.,
-      0.1,
-      1000.,
+      PI / 2.,
+      0.2,
+      10000.,
     );
   }
   pub fn update_zoom(&mut self, ds: i32) {
