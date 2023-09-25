@@ -4,25 +4,21 @@ use crate::mesh::Mesh;
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Float32Array;
-use js_sys::Object;
 use js_sys::Uint16Array;
-use js_sys::Uint8Array;
 use nalgebra::Matrix4;
-use nalgebra::Similarity;
 use nalgebra::Similarity3;
 use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
+use web_sys::gpu_buffer_usage;
 use web_sys::Blob;
 use web_sys::GpuAddressMode;
 use web_sys::GpuBuffer;
 use web_sys::GpuBufferDescriptor;
 use web_sys::GpuFilterMode;
-use web_sys::GpuImageCopyExternalImage;
 use web_sys::ImageBitmap;
 use web_sys::Response;
-use web_sys::gpu_buffer_usage;
 use web_sys::{
   gpu_texture_usage, GpuAdapter, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
   GpuColorTargetState, GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice,
@@ -30,8 +26,8 @@ use web_sys::{
   GpuPrimitiveTopology, GpuRenderPassColorAttachment, GpuRenderPassDepthStencilAttachment,
   GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor, GpuSampler,
   GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor,
-  GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState,
-  HtmlCanvasElement,
+  GpuTextureDimension, GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout,
+  GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
 };
 
 pub struct Renderer {
@@ -129,8 +125,8 @@ impl Renderer {
           .fragment(&fragment_state)
           .primitive(
             &GpuPrimitiveState::new()
-              .front_face(GpuFrontFace::Ccw)
-              .cull_mode(GpuCullMode::Back)
+              .front_face(GpuFrontFace::Cw)
+              .cull_mode(GpuCullMode::None)
               .topology(GpuPrimitiveTopology::TriangleList),
           )
           .depth_stencil(
@@ -205,8 +201,11 @@ impl Renderer {
         &Float32Array::from(&[r, g, b, a, (mesh.material_type as u32) as f32][..]),
       );
 
-      if mesh.material_type == MaterialType::Textured {
-        pass_encoder.set_bind_group(1, &mesh.texture_bind_group.as_ref().unwrap());
+      match mesh.material_type {
+        MaterialType::Textured | MaterialType::CubeMap => {
+          pass_encoder.set_bind_group(1, &mesh.texture_bind_group.as_ref().unwrap());
+        }
+        _ => {}
       }
 
       pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
@@ -249,10 +248,20 @@ impl Renderer {
     buffer.unmap();
     buffer
   }
-  pub async fn create_image(
-      &self,
-    src: &str,
-  ) -> Result<(GpuTexture, GpuImageCopyExternalImage, Rect), JsValue> {
+  pub fn create_texture(&self, rect: &Rect, num_images: u32) -> GpuTexture {
+    let mut desc = GpuTextureDescriptor::new(
+      GpuTextureFormat::Rgba8unorm,
+      &iter_to_array([rect.width as u32, rect.height as u32, num_images]),
+      gpu_texture_usage::TEXTURE_BINDING
+        | gpu_texture_usage::COPY_DST
+        | gpu_texture_usage::RENDER_ATTACHMENT,
+    );
+    if num_images == 6 {
+      desc.dimension(GpuTextureDimension::N2d);
+    }
+    self.device.create_texture(&desc)
+  }
+  pub async fn create_bitmap(src: &str) -> Result<(ImageBitmap, Rect), JsValue> {
     let res = JsFuture::from(window().fetch_with_str(src))
       .await?
       .dyn_into::<Response>()?;
@@ -260,20 +269,7 @@ impl Renderer {
     let bitmap = JsFuture::from(window().create_image_bitmap_with_blob(&blob)?).await?;
     let image = bitmap.dyn_into::<ImageBitmap>()?;
     let (width, height) = (image.width(), image.height());
-    let mut source = GpuImageCopyExternalImage::new(&Object::new());
-    source.flip_y(false);
-    source.source(&Object::from(image));
-    Ok((
-      self.device.create_texture(&GpuTextureDescriptor::new(
-        GpuTextureFormat::Rgba8unormSrgb,
-        &iter_to_array([width as i32, height as i32]),
-        gpu_texture_usage::TEXTURE_BINDING
-          | gpu_texture_usage::COPY_DST
-          | gpu_texture_usage::RENDER_ATTACHMENT,
-      )),
-      source,
-      Rect { width, height },
-    ))
+    Ok((image, Rect { width, height }))
   }
 }
 
@@ -309,6 +305,6 @@ impl Color {
 
 #[derive(Serialize)]
 pub struct Rect {
-  width: u32,
-  height: u32,
+  pub width: u32,
+  pub height: u32,
 }

@@ -59,9 +59,11 @@ canvas {
 
 .pause-menu h1 {
   text-align: center;
+  user-select: none;
 }
 
 button {
+  user-select: none;
   border: none;
   color: white;
   font:
