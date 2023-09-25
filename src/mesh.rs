@@ -81,6 +81,20 @@ impl Material {
       },
     }
   }
+  pub fn cubemap(src_set: [&str; 6]) -> Self {
+    Self {
+      material_type: MaterialType::CubeMap,
+      vertex_colors: vec![],
+      texture_coordinates: vec![],
+      texture_src: src_set.iter().map(|s| s.to_string()).collect(),
+      color: Color {
+        r: 0.,
+        g: 0.,
+        b: 0.,
+        a: 1.,
+      },
+    }
+  }
 }
 
 pub struct Geometry {

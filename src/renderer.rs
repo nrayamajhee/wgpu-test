@@ -152,7 +152,7 @@ impl Renderer {
                 .depth_compare(GpuCompareFunction::Less)
                 .depth_write_enabled(true),
             ),
-        ),
+        )
       )
     };
     let mut sampler_desc = GpuSamplerDescriptor::new();
