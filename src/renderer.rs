@@ -68,9 +68,9 @@ impl Renderer {
     );
     color_attachment.clear_value(
       &JsValue::from_serde(&Color {
-        r: 0.,
-        g: 0.,
-        b: 0.,
+        r: 0.1,
+        g: 0.1,
+        b: 0.1,
         a: 1.0,
       })
       .unwrap(),
@@ -209,11 +209,7 @@ impl Renderer {
       }
 
       pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
-      let model_view_proj = if mesh.material_type == MaterialType::CubeMap {
-        Float32Array::from(view_proj.as_slice())
-      } else {
-        Float32Array::from((view_proj * model.to_homogeneous()).as_slice())
-      };
+      let model_view_proj = Float32Array::from((view_proj * model.to_homogeneous()).as_slice());
       queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &model_view_proj);
       pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
       pass_encoder.draw_indexed(mesh.index_count);
@@ -254,7 +250,7 @@ impl Renderer {
   }
   pub fn create_texture(&self, rect: &Rect, num_images: u32) -> GpuTexture {
     let mut desc = GpuTextureDescriptor::new(
-      GpuTextureFormat::Rgba8unormSrgb,
+      GpuTextureFormat::Rgba8unorm,
       &iter_to_array([rect.width as u32, rect.height as u32, num_images]),
       gpu_texture_usage::TEXTURE_BINDING
         | gpu_texture_usage::COPY_DST

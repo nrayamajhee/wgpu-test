@@ -32,7 +32,7 @@ fn vs_main(input: VertexInput ) -> VertexOutput {
   output.tex_coords = input.tex_coords;
   output.color = material.color;
   output.material_type = u32(material.material_type);
-  output.frag_position = output.position.xyz;
+  output.frag_position = input.position;
   return output;
 }
 
@@ -49,7 +49,7 @@ var tex_cube: texture_cube<f32>;
 @fragment
 fn fs_main(output: VertexOutput) -> @location(0) vec4<f32> {
   let texel = textureSample(tex_diffuse, tex_sampler, output.tex_coords);
-  let cube_texel = textureSample(tex_cube, tex_sampler, output.frag_position.xyz);
+  let cube_texel = textureSample(tex_cube, tex_sampler, output.frag_position);
   switch output.material_type {
     case 1 {
       return vec4(output.vertex_colors,1.0);
