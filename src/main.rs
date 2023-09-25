@@ -112,6 +112,27 @@ async fn async_main() -> Result<(), JsValue> {
 
     scene.add("cube", mesh, body);
 
+    let geo = Geometry::from_genmesh(&Cube::new());
+    let mesh = Mesh::new(
+      &renderer,
+      &geo,
+      &Material::cubemap(
+        [
+          "img/milkyway/posx.jpg",
+          "img/milkyway/negx.jpg",
+          "img/milkyway/posy.jpg",
+          "img/milkyway/negy.jpg",
+          "img/milkyway/posz.jpg",
+          "img/milkyway/negz.jpg",
+        ]
+      ),
+    )
+    .await?;
+
+    let body = RigidBodyBuilder::fixed()
+      .build();
+    scene.add_w_scale("skybox", mesh, body, 1000.);
+
     let mesh = Mesh::new(
       &renderer,
       &Geometry::from_genmesh(&IcoSphere::subdivide(3)),
@@ -247,9 +268,9 @@ async fn async_main() -> Result<(), JsValue> {
         let Movement { dx, dy } = *movement.borrow();
         let body = scene.get_body_mut("sphere").unwrap();
         if dx == 0. && dy == 0. {
-          // body.reset_forces(true);
+          body.reset_forces(true);
         } else {
-          body.add_force(vector![dx * 0.01, 0., -dy * 0.01], true);
+          body.apply_impulse(vector![dx * 0.1, 0., -dy * 0.1], true);
         }
         viewport.borrow_mut().follow(*body.position());
         renderer.borrow_mut().render(

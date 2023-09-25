@@ -23,7 +23,7 @@ impl Viewport {
       0.1,
       1000.,
     );
-    let eye = [0., 2., 4.].into();
+    let eye = [0., 5., 10.].into();
     let view = Isometry3::look_at_rh(&eye, &target.translation.vector.into(), &Vector3::y());
     Self {
       view,

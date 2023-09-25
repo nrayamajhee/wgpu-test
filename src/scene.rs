@@ -59,11 +59,15 @@ impl Scene {
   }
 
   pub fn add(&mut self, name: &str, mesh: Mesh, body: RigidBody) {
+      self.add_w_scale(name, mesh, body, 1.)
+  }
+
+  pub fn add_w_scale(&mut self, name: &str, mesh: Mesh, body: RigidBody, scale: f32) {
     let handle = self.rigid_body_set.insert(body);
     self.ids.push(name.to_owned());
     self.meshes.push(mesh);
     self.handles.push(handle);
-    self.scales.push(1.);
+    self.scales.push(scale);
   }
 
   pub fn simiarities(&self) -> Vec<Similarity3<f32>> {
