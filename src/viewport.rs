@@ -1,5 +1,5 @@
-use nalgebra::{Isometry3, Matrix4, Perspective3, Point3, Unit, UnitQuaternion, Vector3};
-use std::f32::consts::PI;
+use nalgebra::{Isometry3, Matrix4, Perspective3, Unit, UnitQuaternion, Vector3};
+use std::{f32::consts::PI};
 use web_sys::HtmlCanvasElement;
 
 pub struct Viewport {
@@ -33,8 +33,11 @@ impl Viewport {
       rotate: false,
     }
   }
+  pub fn follow(&mut self, target: Isometry3<f32>) {
+    self.target = target;
+  }
   pub fn view_proj(&self) -> Matrix4<f32> {
-    self.proj.to_homogeneous() * self.view.to_homogeneous()
+    self.proj.to_homogeneous() * self.view.to_homogeneous() * self.target.inverse().to_homogeneous()
   }
   pub fn resize(&mut self, canvas: &HtmlCanvasElement) {
     self.proj = Perspective3::new(
@@ -65,11 +68,11 @@ impl Viewport {
     }
   }
   pub fn unlock(&mut self) {
-      self.zoom = true;
-      self.rotate = true;
+    self.zoom = true;
+    self.rotate = true;
   }
   pub fn lock(&mut self) {
-      self.zoom = true;
-      self.rotate = true;
+    self.zoom = false;
+    self.rotate = false;
   }
 }

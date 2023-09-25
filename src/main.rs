@@ -2,6 +2,8 @@ mod mesh;
 mod renderer;
 mod viewport;
 
+use renderer::Color;
+
 use fluid::{add_event_and_forget, Context};
 use fluid_macro::html;
 use genmesh::generators::{Cube, IcoSphere};
@@ -46,11 +48,8 @@ async fn async_main() -> Result<(), JsValue> {
   body().append_child(&canvas)?;
   {
     let p1 = paused.clone();
-    let p2 = paused.clone();
     let f1 = fullscreen.clone();
     let f2 = fullscreen.clone();
-    let pg1 = pointer_grabbed.clone();
-    let pg2 = pointer_grabbed.clone();
     let c1 = canvas.clone();
     let ui = html! {
         div class=[ctx, &format!("overlay {}",if *p1.get() {"shown"} else {""})] {
@@ -86,13 +85,59 @@ async fn async_main() -> Result<(), JsValue> {
     body().append_child(&ui)?;
   }
   {
+    add_event_and_forget(&document(), "fullscreenchange", move |_| {
+      gloo_console::log!("fullscreenchange");
+      let f = *fullscreen.get();
+      fullscreen.set(!f);
+    });
+  }
+  let movement = Rc::new(RefCell::new(Movement { dx: 0., dy: 0. }));
+  {
     let paused = paused.clone();
+    let movement = movement.clone();
     add_event_and_forget(&window(), "keydown", move |e| {
-      if e.dyn_into::<KeyboardEvent>().unwrap().key() == "Escape" {
-        let p = *paused.get();
-        if !p {
+      let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
+      match key.as_str() {
+        "Escape" => {
+          let p = *paused.get();
+          if !p {
             document().exit_pointer_lock();
+          }
         }
+        "w" => {
+          movement.borrow_mut().dy += 1.;
+        }
+        "s" => {
+          movement.borrow_mut().dy -= 1.;
+        }
+        "a" => {
+          movement.borrow_mut().dx -= 1.;
+        }
+        "d" => {
+          movement.borrow_mut().dx += 1.;
+        }
+        _ => {}
+      }
+    });
+  }
+  {
+    let movement = movement.clone();
+    add_event_and_forget(&window(), "keyup", move |e| {
+      let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
+      match key.as_str() {
+        "w" => {
+          movement.borrow_mut().dy -= 1.;
+        }
+        "s" => {
+          movement.borrow_mut().dy += 1.;
+        }
+        "a" => {
+          movement.borrow_mut().dx += 1.;
+        }
+        "d" => {
+          movement.borrow_mut().dx -= 1.;
+        }
+        _ => {}
       }
     });
   }
@@ -100,22 +145,22 @@ async fn async_main() -> Result<(), JsValue> {
   let viewport = Viewport::new(renderer.canvas());
 
   let geo = Geometry::from_genmesh(&Cube::new());
-  let mat = Material {
-    vertex_colors: geo.vertices.iter().map(|_| [1., 0., 0.]).collect(),
-    texture_coordinates: vec![],
-    texture_src: "img/icon.png".to_string(),
-  };
-  let cube = Mesh::new(&renderer, &geo, &mat).await?;
-  let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
-  let mat = Material {
-    vertex_colors: geo.vertices.iter().map(|_| [0., 1., 0.]).collect(),
-    texture_src: "img/icon.png".to_string(),
-    texture_coordinates: geo
+  let mat = Material::textured(
+    "img/icon.png",
+    geo
       .vertices
       .iter()
       .map(|v| [(v[0] + 1.) / 2., 1. - (v[1] + 1.) / 2.])
       .collect(),
-  };
+  );
+  let cube = Mesh::new(&renderer, &geo, &mat).await?;
+  let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
+  let mat = Material::new(Color {
+    r: 1.,
+    g: 0.,
+    b: 0.,
+    a: 1.,
+  });
 
   let sphere = Mesh::new(&renderer, &geo, &mat).await?;
 
@@ -124,7 +169,9 @@ async fn async_main() -> Result<(), JsValue> {
     .angvel(Vector::y())
     .translation(vector![4., 0., 0.])
     .build();
-  let body2 = RigidBodyBuilder::fixed()
+  let body2 = RigidBodyBuilder::dynamic()
+    .sleeping(true)
+    .additional_mass(2.)
     .build();
 
   let mut rigid_body_set = RigidBodySet::new();
@@ -198,15 +245,13 @@ async fn async_main() -> Result<(), JsValue> {
     add_event_and_forget(&document(), "pointerlockchange", move |_| {
       let p = *paused.get();
       paused.set(!p);
+      if p {
+        viewport.borrow_mut().unlock();
+      } else {
+        viewport.borrow_mut().lock();
+      }
       let p = *pointer_grabbed.get();
       pointer_grabbed.set(!p);
-      viewport.borrow_mut().unlock();
-    });
-  }
-  {
-    add_event_and_forget(&document(), "fullscreenchange", move |_| {
-        let f = *fullscreen.get();
-        fullscreen.set(!f);
     });
   }
 
@@ -227,6 +272,14 @@ async fn async_main() -> Result<(), JsValue> {
         &physics_hooks,
         &event_handler,
       );
+      let Movement { dx, dy } = *movement.borrow();
+      let body = rigid_body_set.get_mut(handle2).unwrap();
+      if dx == 0. && dy == 0. {
+        // body.reset_forces(true);
+      } else {
+        body.add_force(vector![dx * 0.01, 0., -dy * 0.01], true);
+      }
+      viewport.borrow_mut().follow(*body.position());
       let bodies: Vec<Matrix4<f32>> = handles
         .iter()
         .zip(scales.iter())
@@ -279,4 +332,10 @@ pub fn on_animation_frame(mut closure: impl FnMut(f64) + 'static, fps: Option<f6
   *g.borrow_mut() = Some(closure);
   *t.borrow_mut() = now();
   request_animation_frame(g.borrow().as_ref().unwrap());
+}
+
+#[derive(Debug)]
+struct Movement {
+  dx: f32,
+  dy: f32,
 }

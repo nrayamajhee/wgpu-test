@@ -1,21 +1,27 @@
 use crate::iter_to_array;
+use crate::mesh::MaterialType;
 use crate::mesh::Mesh;
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Float32Array;
+use js_sys::Object;
+use js_sys::Uint8Array;
 use nalgebra::Matrix4;
 use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
+use web_sys::GpuAddressMode;
+use web_sys::GpuFilterMode;
 use web_sys::{
   gpu_texture_usage, GpuAdapter, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
   GpuColorTargetState, GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice,
   GpuFragmentState, GpuFrontFace, GpuIndexFormat, GpuLoadOp, GpuPrimitiveState,
   GpuPrimitiveTopology, GpuRenderPassColorAttachment, GpuRenderPassDepthStencilAttachment,
-  GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor,
-  GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor, GpuTextureFormat,
-  GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
+  GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor, GpuSampler,
+  GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor,
+  GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState,
+  HtmlCanvasElement,
 };
 
 pub struct Renderer {
@@ -27,6 +33,7 @@ pub struct Renderer {
   color_attachment: GpuRenderPassColorAttachment,
   depth_attachment: GpuRenderPassDepthStencilAttachment,
   render_pass_descriptor: GpuRenderPassDescriptor,
+  sampler: GpuSampler,
 }
 
 impl Renderer {
@@ -123,6 +130,11 @@ impl Renderer {
           ),
       )
     };
+    let mut sampler_desc = GpuSamplerDescriptor::new();
+    sampler_desc.address_mode_u(GpuAddressMode::Repeat);
+    sampler_desc.address_mode_v(GpuAddressMode::Repeat);
+    sampler_desc.mag_filter(GpuFilterMode::Linear);
+    let sampler = device.create_sampler_with_descriptor(&sampler_desc);
     Ok(Self {
       canvas,
       context,
@@ -132,7 +144,11 @@ impl Renderer {
       color_attachment,
       pipeline,
       render_pass_descriptor,
+      sampler,
     })
+  }
+  pub fn texture_sampler(&self) -> &GpuSampler {
+    &self.sampler
   }
   pub fn canvas(&self) -> &HtmlCanvasElement {
     &self.canvas
@@ -167,13 +183,24 @@ impl Renderer {
     );
     pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
     for (mesh, model) in meshes.iter().zip(models.iter()) {
-      pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
       pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
       pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
-      pass_encoder.set_bind_group(1, &mesh.texture_bind_group);
       pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
-      let model_view_proj = view_proj * model;
-      let model_view_proj = Float32Array::from(model_view_proj.as_slice());
+
+      pass_encoder.set_bind_group(2, &mesh.material_bind_group);
+      let Color { r, g, b, a } = mesh.color;
+      queue.write_buffer_with_u32_and_buffer_source(
+        &mesh.material_buffer,
+        0,
+        &Float32Array::from(&[r, g, b, a, (mesh.material_type as u32) as f32][..]),
+      );
+
+      if mesh.material_type == MaterialType::Textured {
+        pass_encoder.set_bind_group(1, &mesh.texture_bind_group.as_ref().unwrap());
+      }
+
+      pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
+      let model_view_proj = Float32Array::from((view_proj * model).as_slice());
       queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &model_view_proj);
       pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
       pass_encoder.draw_indexed(mesh.index_count);
@@ -204,10 +231,10 @@ pub fn get_window_dimension() -> (u32, u32) {
   )
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Copy, Debug)]
 pub struct Color {
-  r: f32,
-  g: f32,
-  b: f32,
-  a: f32,
+  pub r: f32,
+  pub g: f32,
+  pub b: f32,
+  pub a: f32,
 }
