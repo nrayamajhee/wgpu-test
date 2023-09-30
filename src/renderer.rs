@@ -5,6 +5,7 @@ use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Float32Array;
 use js_sys::Uint16Array;
+use nalgebra::Isometry3;
 use nalgebra::Matrix4;
 use nalgebra::Similarity3;
 use serde::Serialize;
@@ -120,40 +121,56 @@ impl Renderer {
         &shader,
         &iter_to_array(&[GpuColorTargetState::new(gpu.get_preferred_canvas_format())]),
       );
-      (
-        device.create_render_pipeline(
-          &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
-            .label("Defualt Render pipeline")
-            .fragment(&fragment_state)
-            .primitive(
-              &GpuPrimitiveState::new()
-                .front_face(GpuFrontFace::Ccw)
-                .cull_mode(GpuCullMode::Back)
-                .topology(GpuPrimitiveTopology::TriangleList),
-            )
-            .depth_stencil(
-              GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
-                .depth_compare(GpuCompareFunction::Less)
-                .depth_write_enabled(true),
-            ),
-        ),
-        device.create_render_pipeline(
-          &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
-            .label("Defualt Render pipeline")
-            .fragment(&fragment_state)
-            .primitive(
-              &GpuPrimitiveState::new()
-                .front_face(GpuFrontFace::Ccw)
-                .cull_mode(GpuCullMode::Front)
-                .topology(GpuPrimitiveTopology::TriangleList),
-            )
-            .depth_stencil(
-              GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
-                .depth_compare(GpuCompareFunction::Less)
-                .depth_write_enabled(true),
-            ),
-        ),
-      )
+      let pipeline = device.create_render_pipeline(
+        &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
+          .label("Defualt Render pipeline")
+          .fragment(&fragment_state)
+          .primitive(
+            &GpuPrimitiveState::new()
+              .front_face(GpuFrontFace::Ccw)
+              .cull_mode(GpuCullMode::Back)
+              .topology(GpuPrimitiveTopology::TriangleList),
+          )
+          .depth_stencil(
+            GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
+              .depth_compare(GpuCompareFunction::Less)
+              .depth_write_enabled(true),
+          ),
+      );
+      let cubemap_shader = device.create_shader_module(&GpuShaderModuleDescriptor::new(
+        include_str!("shader_cube.wgsl"),
+      ));
+      let position_attribute_description =
+        GpuVertexAttribute::new(GpuVertexFormat::Float32x3, 0., 0);
+      let tex_coords_attribute_description =
+        GpuVertexAttribute::new(GpuVertexFormat::Float32x2, 0., 1);
+      let mut vertex_state = GpuVertexState::new("vs_main", &cubemap_shader);
+      vertex_state.buffers(&iter_to_array(&[
+        GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[position_attribute_description])),
+        GpuVertexBufferLayout::new(4. * 2., &iter_to_array(&[tex_coords_attribute_description])),
+      ]));
+      let fragment_state = GpuFragmentState::new(
+        "fs_main",
+        &cubemap_shader,
+        &iter_to_array(&[GpuColorTargetState::new(gpu.get_preferred_canvas_format())]),
+      );
+      let pipeline_cubemap = device.create_render_pipeline(
+        &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
+          .label("Cubemap Render pipeline")
+          .fragment(&fragment_state)
+          .primitive(
+            &GpuPrimitiveState::new()
+              .front_face(GpuFrontFace::Ccw)
+              .cull_mode(GpuCullMode::Front)
+              .topology(GpuPrimitiveTopology::TriangleList),
+          )
+          .depth_stencil(
+            GpuDepthStencilState::new(GpuTextureFormat::Depth24plusStencil8)
+              .depth_compare(GpuCompareFunction::Less)
+              .depth_write_enabled(true),
+          ),
+      );
+      (pipeline, pipeline_cubemap)
     };
     let mut sampler_desc = GpuSamplerDescriptor::new();
     sampler_desc.address_mode_u(GpuAddressMode::Repeat);
@@ -185,6 +202,9 @@ impl Renderer {
   pub fn pipeline(&self) -> &GpuRenderPipeline {
     &self.pipeline
   }
+  pub fn pipeline_cubebox(&self) -> &GpuRenderPipeline {
+    &self.pipeline_cubebox
+  }
   pub fn render(&mut self, meshes: &[Mesh], models: &[Similarity3<f32>], view_proj: Matrix4<f32>) {
     let queue = self.device.queue();
     self
@@ -206,38 +226,43 @@ impl Renderer {
       0.,
       1.,
     );
-    pass_encoder.set_pipeline(&self.pipeline);
     pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
-    let mut cubebox_end = false;
     for (mesh, model) in meshes.iter().zip(models.iter()) {
       if mesh.material_type == MaterialType::CubeMap {
         pass_encoder.set_pipeline(&self.pipeline_cubebox);
-        cubebox_end = true;
-      } else if cubebox_end {
+      } else {
         pass_encoder.set_pipeline(&self.pipeline);
       }
       pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
-      pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
-      pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
-
-      pass_encoder.set_bind_group(2, &mesh.material_bind_group);
-      let Color { r, g, b, a } = mesh.color;
-      queue.write_buffer_with_u32_and_buffer_source(
-        &mesh.material_buffer,
-        0,
-        &Float32Array::from(&[r, g, b, a, (mesh.material_type as u32) as f32][..]),
-      );
 
       match mesh.material_type {
-        MaterialType::Textured | MaterialType::CubeMap => {
-          pass_encoder.set_bind_group(1, &mesh.texture_bind_group.as_ref().unwrap());
+        MaterialType::CubeMap => {
+          pass_encoder.set_vertex_buffer(1, &mesh.texture_coordinates);
         }
-        _ => {}
+        _ => {
+          pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
+          pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
+        }
       }
 
       pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
-      let model_view_proj = Float32Array::from((view_proj * model.to_homogeneous()).as_slice());
-      queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &model_view_proj);
+      pass_encoder.set_bind_group(1, &mesh.texture_bind_group);
+
+    let mvp = view_proj * model.to_homogeneous();
+      if matches!(mesh.material_type, MaterialType::CubeMap) {
+        let uniforms = Float32Array::from(&mvp.as_slice()[..]);
+        queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &uniforms);
+      } else {
+        let Color { r, g, b, a } = mesh.color;
+        let mut uniforms: Vec<f32> = mvp.into_iter().map(|f| *f).collect();
+        uniforms.push(r);
+        uniforms.push(g);
+        uniforms.push(b);
+        uniforms.push(a);
+        uniforms.push(mesh.material_type as u32 as f32);
+        let uniforms = Float32Array::from(&uniforms[..]);
+        queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &uniforms);
+      }
       pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
       pass_encoder.draw_indexed(mesh.index_count);
     }

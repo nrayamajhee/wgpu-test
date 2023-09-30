@@ -1,3 +1,4 @@
+use crate::renderer::Rect;
 use crate::Color;
 use crate::{iter_to_array, renderer::Renderer};
 use genmesh::{
@@ -13,7 +14,7 @@ use web_sys::{
   GpuTextureViewDescriptor, GpuTextureViewDimension,
 };
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum MaterialType {
   Color = 0,
   VertexColor = 1,
@@ -120,11 +121,8 @@ pub struct Mesh {
   pub uniform_buffer: GpuBuffer,
   pub uniform_bind_group: GpuBindGroup,
 
-  pub material_buffer: GpuBuffer,
-  pub material_bind_group: GpuBindGroup,
-
   pub texture_coordinates: GpuBuffer,
-  pub texture_bind_group: Option<GpuBindGroup>,
+  pub texture_bind_group: GpuBindGroup,
 }
 
 impl Mesh {
@@ -134,7 +132,11 @@ impl Mesh {
     material: &Material,
   ) -> Result<Self, JsValue> {
     let device = renderer.device();
-    let pipeline = renderer.pipeline();
+    let pipeline = if material.material_type == MaterialType::CubeMap {
+      renderer.pipeline_cubebox()
+    } else {
+      renderer.pipeline()
+    };
     let vertex_buffer = {
       let vertices: Vec<f32> = geometry.vertices.iter().flatten().map(|f| *f).collect();
       renderer.create_buffer(&vertices)
@@ -163,7 +165,7 @@ impl Mesh {
       renderer.create_buffer(&[])
     };
 
-    let texture_bind_group = if !material.texture_src.is_empty() {
+    let texture_bind_group = {
       let mut bitmaps = vec![];
       let mut rect = None;
       for each in material.texture_src.iter() {
@@ -173,19 +175,25 @@ impl Mesh {
         }
         bitmaps.push(texture);
       }
-      let rect = rect.unwrap();
-      let texture1 = renderer.create_texture(&rect, 1);
-      let texture2 = renderer.create_texture(&rect, 6);
+      let rect = rect.unwrap_or(Rect {
+        width: 1,
+        height: 1,
+      });
+      let texture = if material.material_type == MaterialType::CubeMap {
+        renderer.create_texture(&rect, 6)
+      } else {
+        renderer.create_texture(&rect, 1)
+      };
       for (i, bitmap) in bitmaps.into_iter().enumerate() {
         let mut source = GpuImageCopyExternalImage::new(&Object::new());
         source.flip_y(false);
         source.source(&Object::from(bitmap));
         let dest = if material.material_type == MaterialType::CubeMap {
-          let mut dest = GpuImageCopyTextureTagged::new(&texture2);
+          let mut dest = GpuImageCopyTextureTagged::new(&texture);
           dest.origin(&iter_to_array([0, 0, i as i32]));
           dest
         } else {
-          GpuImageCopyTextureTagged::new(&texture1)
+          GpuImageCopyTextureTagged::new(&texture)
         };
         device
           .queue()
@@ -195,16 +203,23 @@ impl Mesh {
             &iter_to_array([rect.width, rect.height]),
           );
       }
-      let entries = vec![
-        JsValue::from(&GpuBindGroupEntry::new(0, &renderer.texture_sampler())),
-        JsValue::from(&GpuBindGroupEntry::new(1, &texture1.create_view())),
-        JsValue::from(&GpuBindGroupEntry::new(
-          2,
-          &texture2.create_view_with_descriptor(
+      let mut entries = vec![JsValue::from(&GpuBindGroupEntry::new(
+        0,
+        &renderer.texture_sampler(),
+      ))];
+      if material.material_type == MaterialType::CubeMap {
+        entries.push(JsValue::from(&GpuBindGroupEntry::new(
+          1,
+          &texture.create_view_with_descriptor(
             &GpuTextureViewDescriptor::new().dimension(GpuTextureViewDimension::Cube),
           ),
-        )),
-      ];
+        )));
+      } else {
+        entries.push(JsValue::from(&GpuBindGroupEntry::new(
+          1,
+          &texture.create_view(),
+        )));
+      }
       let texture_binding_group =
         renderer
           .device()
@@ -212,13 +227,11 @@ impl Mesh {
             &iter_to_array(&entries),
             &pipeline.get_bind_group_layout(1),
           ));
-      Some(texture_binding_group)
-    } else {
-      None
+      texture_binding_group
     };
 
     let uniform_buffer = device.create_buffer(&GpuBufferDescriptor::new(
-      16. * 4.,
+      96.,
       gpu_buffer_usage::UNIFORM | gpu_buffer_usage::COPY_DST,
     ));
 
@@ -230,22 +243,6 @@ impl Mesh {
           &GpuBufferBinding::new(&uniform_buffer),
         ))]),
         &pipeline.get_bind_group_layout(0),
-      ));
-
-    let size = 32;
-    let material_buffer = device.create_buffer(&GpuBufferDescriptor::new(
-      size as f64,
-      gpu_buffer_usage::UNIFORM | gpu_buffer_usage::COPY_DST,
-    ));
-
-    let material_bind_group = renderer
-      .device()
-      .create_bind_group(&GpuBindGroupDescriptor::new(
-        &iter_to_array(&[JsValue::from(&GpuBindGroupEntry::new(
-          0,
-          &GpuBufferBinding::new(&material_buffer),
-        ))]),
-        &pipeline.get_bind_group_layout(2),
       ));
 
     Ok(Self {
@@ -260,8 +257,6 @@ impl Mesh {
       uniform_bind_group,
       texture_coordinates,
       texture_bind_group,
-      material_buffer,
-      material_bind_group,
     })
   }
 }
