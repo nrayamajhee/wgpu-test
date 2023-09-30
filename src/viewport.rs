@@ -1,5 +1,5 @@
 use nalgebra::{Isometry3, Matrix4, Perspective3, Unit, UnitQuaternion, Vector3};
-use std::{f32::consts::PI};
+use std::f32::consts::PI;
 use web_sys::HtmlCanvasElement;
 
 pub struct Viewport {
@@ -35,6 +35,9 @@ impl Viewport {
   }
   pub fn follow(&mut self, target: Isometry3<f32>) {
     self.target = target;
+  }
+  pub fn view_cube(&self) -> Matrix4<f32> {
+    self.proj.to_homogeneous() * self.view.rotation.to_homogeneous()
   }
   pub fn view_proj(&self) -> Matrix4<f32> {
     self.proj.to_homogeneous() * self.view.to_homogeneous() * self.target.inverse().to_homogeneous()

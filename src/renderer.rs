@@ -1,6 +1,7 @@
 use crate::iter_to_array;
 use crate::mesh::MaterialType;
 use crate::mesh::Mesh;
+use crate::viewport::Viewport;
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Float32Array;
@@ -205,7 +206,7 @@ impl Renderer {
   pub fn pipeline_cubebox(&self) -> &GpuRenderPipeline {
     &self.pipeline_cubebox
   }
-  pub fn render(&mut self, meshes: &[Mesh], models: &[Similarity3<f32>], view_proj: Matrix4<f32>) {
+  pub fn render(&mut self, meshes: &[Mesh], models: &[Similarity3<f32>], viewport: &Viewport) {
     let queue = self.device.queue();
     self
       .color_attachment
@@ -248,11 +249,12 @@ impl Renderer {
       pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
       pass_encoder.set_bind_group(1, &mesh.texture_bind_group);
 
-    let mvp = view_proj * model.to_homogeneous();
       if matches!(mesh.material_type, MaterialType::CubeMap) {
+        let mvp = viewport.view_cube() * model.to_homogeneous();
         let uniforms = Float32Array::from(&mvp.as_slice()[..]);
         queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &uniforms);
       } else {
+        let mvp = viewport.view_proj() * model.to_homogeneous();
         let Color { r, g, b, a } = mesh.color;
         let mut uniforms: Vec<f32> = mvp.into_iter().map(|f| *f).collect();
         uniforms.push(r);

@@ -347,7 +347,7 @@ async fn async_main() -> Result<(), JsValue> {
         renderer.borrow_mut().render(
           &scene.meshes(),
           &scene.simiarities(),
-          viewport.borrow().view_proj(),
+          &viewport.borrow(),
         );
       }
       if first_frame {
