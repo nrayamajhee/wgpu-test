@@ -42,9 +42,9 @@ fn fs_main(output: VertexOutput) -> @location(0) vec4<f32> {
   }
   if uniforms.material_type == 2. {
       let a = texel.a;
-      let r = a * texel.r + (1 - a) * uniforms.color.r;
-      let g = a * texel.g + (1 - a) * uniforms.color.g;
-      let b = a * texel.b + (1 - a) * uniforms.color.b;
+      let r = a * texel.r + (1.0 - a) * uniforms.color.r;
+      let g = a * texel.g + (1.0 - a) * uniforms.color.g;
+      let b = a * texel.b + (1.0 - a) * uniforms.color.b;
       return vec4(r,g,b,1.);
   }
   return uniforms.color;
