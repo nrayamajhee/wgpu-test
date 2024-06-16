@@ -155,7 +155,7 @@ name = "fluid"
 version = "0.1.0"
 source = "git+https://github.com/nrayamajhee/fluid.git#557172a4e45470e1c2c7323ad17192c7a348f0eb"
 dependencies = [
- "gloo-timers 0.3.0",
+ "gloo-timers",
  "gloo-utils 0.2.0",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -222,16 +222,6 @@ checksum = "2fd9306aef67cfd4449823aadcd14e3958e0800aa2183955a309112a84ec7764"
 dependencies = [
  "wasm-bindgen",
  "web-sys",
-]
-
-[[package]]
-name = "gloo-timers"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b995a66bb87bebce9a0f4a95aed01daca4872c050bfcb21653361c03bc35e5c"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -894,7 +884,7 @@ dependencies = [
  "genmesh",
  "gloo-console",
  "gloo-render",
- "gloo-timers 0.2.6",
+ "gloo-timers",
  "gloo-utils 0.1.7",
  "js-sys",
  "nalgebra",

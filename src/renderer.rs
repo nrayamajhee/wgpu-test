@@ -13,23 +13,16 @@ use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::gpu_buffer_usage;
-use web_sys::Blob;
-use web_sys::GpuAddressMode;
-use web_sys::GpuBuffer;
-use web_sys::GpuBufferDescriptor;
-use web_sys::GpuFilterMode;
-use web_sys::ImageBitmap;
-use web_sys::Response;
 use web_sys::{
-  gpu_texture_usage, GpuAdapter, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
+  gpu_buffer_usage, gpu_texture_usage, Blob, Document, GpuAdapter, GpuAddressMode, GpuBuffer,
+  GpuBufferDescriptor, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
   GpuColorTargetState, GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice,
-  GpuFragmentState, GpuFrontFace, GpuIndexFormat, GpuLoadOp, GpuPrimitiveState,
+  GpuFilterMode, GpuFragmentState, GpuFrontFace, GpuIndexFormat, GpuLoadOp, GpuPrimitiveState,
   GpuPrimitiveTopology, GpuRenderPassColorAttachment, GpuRenderPassDepthStencilAttachment,
   GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor, GpuSampler,
   GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor,
   GpuTextureDimension, GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout,
-  GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
+  GpuVertexFormat, GpuVertexState, HtmlCanvasElement, ImageBitmap, Response, Window,
 };
 
 pub struct Renderer {
@@ -46,7 +39,12 @@ pub struct Renderer {
 }
 
 impl Renderer {
-  pub async fn new(canvas: HtmlCanvasElement) -> Result<Self, JsValue> {
+  pub async fn new() -> Result<Self, JsValue> {
+    let canvas = window()
+      .document()
+      .unwrap()
+      .create_element("canvas")?
+      .dyn_into::<HtmlCanvasElement>()?;
     let gpu = window().navigator().gpu();
     let adapter = JsFuture::from(gpu.request_adapter())
       .await?

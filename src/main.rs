@@ -1,27 +1,31 @@
+mod game;
 mod mesh;
+mod movement;
 mod renderer;
 mod scene;
 mod viewport;
+
+pub use game::Game;
+pub use mesh::{Geometry, Material, Mesh};
+use movement::Movement;
+use renderer::Color;
+pub use renderer::Renderer;
+pub use scene::Scene;
+pub use viewport::Viewport;
 
 use genmesh::{Triangulate, Vertices};
 use nalgebra::{Point3, Vector};
 use noise::{Curve, Fbm, NoiseFn, Perlin};
 
-use renderer::Color;
-
 use fluid::{add_event_and_forget, on_animation_frame, Context};
 use fluid_macro::html;
 use genmesh::generators::{Cube, IcoSphere, IndexedPolygon, SharedVertex};
 use gloo_console::log;
-use gloo_utils::{body, document, window};
+use gloo_utils::{body, document, window as gloo_window};
 use js_sys::Array;
-use scene::Scene;
-use viewport::Viewport;
 use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
-use mesh::{Geometry, Material, Mesh};
-use renderer::Renderer;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -43,54 +47,13 @@ fn main() {
 }
 
 async fn async_main() -> Result<(), JsValue> {
-  let canvas = document().create_element("canvas")?;
-  body().append_child(&canvas)?;
-
-  let ctx = Context::new();
-  let paused = ctx.create_signal(true);
-  let fullscreen = ctx.create_signal(false);
-  let pointer_grabbed = ctx.create_signal(false);
-  {
-    let p1 = paused.clone();
-    let f1 = fullscreen.clone();
-    let f2 = fullscreen.clone();
-    let c1 = canvas.clone();
-    let ui = html! {
-        div class=[ctx, &format!("overlay {}",if *p1.get() {"shown"} else {""})] {
-            div class="pause-menu" {
-             h1 {"Pause Menu" }
-             div class="buttons" {
-                 button
-                 class="resume-btn"
-                 @click=(move |_| {
-                     c1.request_pointer_lock();
-                 })
-                 { "Resume" }
-                 button
-                 @click=(move |_| {
-                     if *f1.get() {
-                         document().exit_fullscreen();
-                     } else {
-                         document().document_element().unwrap().request_fullscreen().unwrap();
-                     }
-                 })
-                 {[
-                     ctx,
-                     if *f2.get() {
-                         "Exit fullscreen"
-                     } else {
-                         "Go fullscreeen"
-                     }
-                 ]}
-             }
-            }
-        }
-    };
-    body().append_child(&ui)?;
-  }
-
+  let renderer = Renderer::new().await?;
+  let viewport = Viewport::new(renderer.canvas());
+  let context = Context::new();
+  let viewport = Rc::new(RefCell::new(viewport));
   let mut scene = Scene::new();
-  let renderer = Renderer::new(canvas.dyn_into::<HtmlCanvasElement>()?).await?;
+
+  body().append_child(&renderer.canvas())?;
 
   {
     let geo = Geometry::from_genmesh(&Cube::new());
@@ -223,48 +186,52 @@ async fn async_main() -> Result<(), JsValue> {
     scene.add_w_scale_collider("vertex_cube", mesh, body, ball, 1.);
   }
 
-  let viewport = Rc::new(RefCell::new(Viewport::new(renderer.canvas())));
-  let movement = Rc::new(RefCell::new(Movement { dx: 0., dy: 0. }));
   let renderer = Rc::new(RefCell::new(renderer));
-
-  {
-    add_event_and_forget(&document(), "fullscreenchange", move |_| {
-      let f = *fullscreen.get();
-      fullscreen.set(!f);
-    });
-  }
-
-  {
-    let pointer_grabbed = pointer_grabbed.clone();
-    let paused = paused.clone();
-    let viewport = viewport.clone();
-
-    add_event_and_forget(&document(), "pointerlockchange", move |_| {
-      let p = *paused.get();
-      paused.set(!p);
-      if p {
-        viewport.borrow_mut().unlock();
-      } else {
-        viewport.borrow_mut().lock();
-      }
-      let p = *pointer_grabbed.get();
-      pointer_grabbed.set(!p);
-    });
-  }
-
+  let game = Rc::new(Game::new(&context, renderer.clone(), viewport.clone()));
+  let game = Rc::new(game);
   {
     let renderer = renderer.clone();
     let viewport = viewport.clone();
-    fluid::add_event_and_forget(&window(), "resize", move |_| {
-      renderer.borrow_mut().resize();
-      viewport.borrow_mut().resize(&renderer.borrow().canvas());
-    });
+    let w1 = game.clone();
+    let w2 = w1.clone();
+    let w3 = w1.clone();
+    let w4 = w1.clone();
+    let ui = html! {
+        div class=[context, &format!("overlay {}",if w1.paused() {"shown"} else {""})] {
+            div class="pause-menu" {
+             h1 {"Pause Menu" }
+             div class="buttons" {
+                 button
+                 class="resume-btn"
+                 @click=(move |_| {
+                     w2.resume(renderer.clone(), &mut viewport.borrow_mut())
+                 })
+                 { "Resume" }
+                 button
+                 @click=(move |_| {
+                     w3.toggle_fullscreen();
+                 })
+                 {[
+                     context,
+                     if w4.fullscreen() {
+                         "Exit fullscreen"
+                     } else {
+                         "Go fullscreeen"
+                     }
+                 ]}
+             }
+            }
+        }
+    };
+    body().append_child(&ui)?;
   }
+
+  let movement = Rc::new(RefCell::new(Movement { dx: 0., dy: 0. }));
 
   {
     let viewport = viewport.clone();
 
-    fluid::add_event_and_forget(&window(), "wheel", move |e| {
+    fluid::add_event_and_forget(&gloo_window(), "wheel", move |e| {
       viewport
         .borrow_mut()
         .update_zoom(e.dyn_into::<WheelEvent>().unwrap().delta_y() as i32);
@@ -273,7 +240,7 @@ async fn async_main() -> Result<(), JsValue> {
   {
     let viewport = viewport.clone();
 
-    add_event_and_forget(&window(), "mousemove", move |e| {
+    add_event_and_forget(&gloo_window(), "mousemove", move |e| {
       let me = e.dyn_into::<MouseEvent>().unwrap();
       viewport
         .borrow_mut()
@@ -281,17 +248,10 @@ async fn async_main() -> Result<(), JsValue> {
     });
   }
   {
-    let paused = paused.clone();
     let movement = movement.clone();
-    add_event_and_forget(&window(), "keydown", move |e| {
+    add_event_and_forget(&gloo_window(), "keydown", move |e| {
       let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
       match key.as_str() {
-        "Escape" => {
-          let p = *paused.get();
-          if !p {
-            document().exit_pointer_lock();
-          }
-        }
         "w" => {
           movement.borrow_mut().dy += 1.;
         }
@@ -310,7 +270,7 @@ async fn async_main() -> Result<(), JsValue> {
   }
   {
     let movement = movement.clone();
-    add_event_and_forget(&window(), "keyup", move |e| {
+    add_event_and_forget(&gloo_window(), "keyup", move |e| {
       let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
       match key.as_str() {
         "w" => {
@@ -334,7 +294,7 @@ async fn async_main() -> Result<(), JsValue> {
 
   on_animation_frame(
     move |_| {
-      if !*paused.get() || first_frame {
+      if !game.paused() || first_frame {
         scene.physics();
         let Movement { dx, dy } = *movement.borrow();
         let body = scene.get_body_mut("sphere").unwrap();
@@ -344,11 +304,9 @@ async fn async_main() -> Result<(), JsValue> {
           body.apply_impulse(vector![dx * 0.1, 0., -dy * 0.1], true);
         }
         viewport.borrow_mut().follow(*body.position());
-        renderer.borrow_mut().render(
-          &scene.meshes(),
-          &scene.simiarities(),
-          &viewport.borrow(),
-        );
+        renderer
+          .borrow_mut()
+          .render(&scene.meshes(), &scene.simiarities(), &viewport.borrow());
       }
       if first_frame {
         first_frame = false;
@@ -357,10 +315,4 @@ async fn async_main() -> Result<(), JsValue> {
     None,
   );
   Ok(())
-}
-
-#[derive(Debug)]
-struct Movement {
-  dx: f32,
-  dy: f32,
 }
