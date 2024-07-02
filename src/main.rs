@@ -4,6 +4,7 @@ mod movement;
 mod renderer;
 mod scene;
 mod viewport;
+mod world;
 
 pub use game::Game;
 pub use mesh::{Geometry, Material, Mesh};
@@ -12,10 +13,10 @@ use renderer::Color;
 pub use renderer::Renderer;
 pub use scene::Scene;
 pub use viewport::Viewport;
+use world::World;
 
 use genmesh::{Triangulate, Vertices};
 use nalgebra::{Point3, Vector};
-use noise::{Curve, Fbm, NoiseFn, Perlin};
 
 use fluid::{add_event_and_forget, on_animation_frame, Context};
 use fluid_macro::html;
@@ -49,7 +50,7 @@ fn main() {
 async fn async_main() -> Result<(), JsValue> {
   let renderer = Renderer::new().await?;
   let viewport = Viewport::new(renderer.canvas());
-  let context = Context::new();
+  let ctx = Context::new();
   let viewport = Rc::new(RefCell::new(viewport));
   let mut scene = Scene::new();
 
@@ -112,61 +113,10 @@ async fn async_main() -> Result<(), JsValue> {
 
     scene.add("sphere", mesh, body);
   }
-  {
-    let mut geo = Geometry::from_genmesh(&IcoSphere::subdivide(4));
-    let noise = Fbm::<Perlin>::new(0);
 
-    for v in geo.vertices.iter_mut() {
-      let noise = noise.get([v[0] as f64, v[1] as f64, v[2] as f64]);
-      let d = 1. + 0.1 * noise;
-      v[0] *= d as f32;
-      v[1] *= d as f32;
-      v[2] *= d as f32;
-    }
-    let mesh = Mesh::new(
-      &renderer,
-      &geo,
-      &Material::vertex_color(
-        geo
-          .vertices
-          .iter()
-          .map(|v| {
-            let pos = vector![v[0], v[1], v[2]];
-            let d = (pos.magnitude() - 1.0) / 0.1;
-            [0., 0.2 + 0.2 * d, 0.]
-          })
-          .collect(),
-      ),
-    )
-    .await?;
-    let vertices = geo
-      .vertices
-      .iter()
-      .map(|[x, y, z]| Point3::new(x * 1000., y * 1000., z * 1000.))
-      .collect();
-    let indices: Vec<[u32; 3]> = geo
-      .indices
-      .chunks(3)
-      .map(|v| [v[0] as u32, v[1] as u32, v[2] as u32])
-      .collect();
-    let lithocollider = ColliderBuilder::convex_mesh(vertices, &indices)
-      .unwrap()
-      .build();
+  // Implement scene node
+  World::new(&renderer, &mut scene).await?;
 
-    let body = RigidBodyBuilder::fixed()
-      .translation(vector![0., -1010., 0.])
-      .build();
-    scene.add_w_scale_collider("lithosphere", mesh, body, lithocollider, 1000.);
-  }
-  // {
-  //   let geo = Geometry::from_genmesh(&IcoSphere::subdivide(4));
-  //   let mesh = Mesh::new(&renderer, &geo, &Material::new(Color::rgb(0., 0.2, 0.5))).await?;
-  //
-  //   let body = RigidBodyBuilder::fixed()
-  //     .translation(vector![0., -1000., 0.])
-  //     .build();
-  //   scene.add_w_scale("hydrosphere", mesh, body, 1000.);
-  // }
   {
     let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
     let mesh = Mesh::new(
@@ -187,33 +137,32 @@ async fn async_main() -> Result<(), JsValue> {
   }
 
   let renderer = Rc::new(RefCell::new(renderer));
-  let game = Rc::new(Game::new(&context, renderer.clone(), viewport.clone()));
+  let game = Rc::new(Game::new(&ctx, renderer.clone(), viewport.clone()));
   let game = Rc::new(game);
   {
     let renderer = renderer.clone();
     let viewport = viewport.clone();
     let w1 = game.clone();
-    let w2 = w1.clone();
-    let w3 = w1.clone();
-    let w4 = w1.clone();
+    let w2 = game.clone();
     let ui = html! {
-        div class=[context, &format!("overlay {}",if w1.paused() {"shown"} else {""})] {
+        div class=[ctx, [game] -> &format!("overlay {}",if game.paused() {"shown"} else {""})] {
             div class="pause-menu" {
              h1 {"Pause Menu" }
              div class="buttons" {
                  button
                  class="resume-btn"
                  @click=(move |_| {
-                     w2.resume(renderer.clone(), &mut viewport.borrow_mut())
+                     w1.resume(renderer.clone(), &mut viewport.borrow_mut())
                  })
                  { "Resume" }
                  button
                  @click=(move |_| {
-                     w3.toggle_fullscreen();
+                     w2.toggle_fullscreen();
                  })
                  {[
-                     context,
-                     if w4.fullscreen() {
+                     ctx,
+                     [game] ->
+                     if game.fullscreen() {
                          "Exit fullscreen"
                      } else {
                          "Go fullscreeen"
