@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-
 use crate::Mesh;
 use nalgebra::{vector, Similarity, Similarity3};
 use rapier3d::{
   dynamics::RigidBodyHandle,
+  geometry::BroadPhaseMultiSap,
   prelude::{
-    BroadPhase, CCDSolver, ColliderSet, ImpulseJointSet, IntegrationParameters, IslandManager,
-    MultibodyJointSet, NarrowPhase, PhysicsPipeline, RigidBody, RigidBodySet, Vector, Collider, ColliderHandle,
+    BroadPhase, CCDSolver, Collider, ColliderHandle, ColliderSet, ImpulseJointSet,
+    IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline,
+    RigidBody, RigidBodySet,
   },
 };
 
@@ -21,7 +21,7 @@ pub struct Scene {
   integration_parameters: IntegrationParameters,
   physics_pipeline: PhysicsPipeline,
   island_manager: IslandManager,
-  broad_phase: BroadPhase,
+  broad_phase: BroadPhaseMultiSap,
   narrow_phase: NarrowPhase,
   impulse_joint_set: ImpulseJointSet,
 
@@ -35,7 +35,7 @@ impl Scene {
     let collider_set = ColliderSet::new();
     let physics_pipeline = PhysicsPipeline::new();
     let island_manager = IslandManager::new();
-    let broad_phase = BroadPhase::new();
+    let broad_phase = BroadPhaseMultiSap::new();
     let narrow_phase = NarrowPhase::new();
     let impulse_joint_set = ImpulseJointSet::new();
     let multibody_joint_set = MultibodyJointSet::new();
@@ -61,7 +61,7 @@ impl Scene {
   }
 
   pub fn add(&mut self, name: &str, mesh: Mesh, body: RigidBody) {
-      self.add_w_scale(name, mesh, body, 1.)
+    self.add_w_scale(name, mesh, body, 1.)
   }
 
   pub fn add_w_scale(&mut self, name: &str, mesh: Mesh, body: RigidBody, scale: f32) {
@@ -72,9 +72,19 @@ impl Scene {
     self.scales.push(scale);
   }
 
-  pub fn add_w_scale_collider(&mut self, name: &str, mesh: Mesh, body: RigidBody, collider: Collider, scale: f32) {
+  pub fn add_w_scale_collider(
+    &mut self,
+    name: &str,
+    mesh: Mesh,
+    body: RigidBody,
+    collider: Collider,
+    scale: f32,
+  ) {
     let r_handle = self.rigid_body_set.insert(body);
-    let c_handle = self.collider_set.insert_with_parent(collider, r_handle, &mut self.rigid_body_set);
+    let c_handle =
+      self
+        .collider_set
+        .insert_with_parent(collider, r_handle, &mut self.rigid_body_set);
     self.ids.push(name.to_owned());
     self.meshes.push(mesh);
     self.r_handles.push(r_handle);

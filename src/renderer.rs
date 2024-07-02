@@ -106,7 +106,8 @@ impl Renderer {
         GpuVertexAttribute::new(GpuVertexFormat::Float32x3, 0., 1);
       let tex_coords_attribute_description =
         GpuVertexAttribute::new(GpuVertexFormat::Float32x2, 0., 2);
-      let mut vertex_state = GpuVertexState::new("vs_main", &shader);
+      let mut vertex_state = GpuVertexState::new(&shader);
+      vertex_state.entry_point("vs_main");
       vertex_state.buffers(&iter_to_array(&[
         GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[position_attribute_description])),
         GpuVertexBufferLayout::new(
@@ -115,11 +116,11 @@ impl Renderer {
         ),
         GpuVertexBufferLayout::new(4. * 2., &iter_to_array(&[tex_coords_attribute_description])),
       ]));
-      let fragment_state = GpuFragmentState::new(
-        "fs_main",
+      let mut fragment_state = GpuFragmentState::new(
         &shader,
         &iter_to_array(&[GpuColorTargetState::new(gpu.get_preferred_canvas_format())]),
       );
+      fragment_state.entry_point("fs_main");
       let pipeline = device.create_render_pipeline(
         &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
           .label("Defualt Render pipeline")
@@ -143,16 +144,17 @@ impl Renderer {
         GpuVertexAttribute::new(GpuVertexFormat::Float32x3, 0., 0);
       let tex_coords_attribute_description =
         GpuVertexAttribute::new(GpuVertexFormat::Float32x2, 0., 1);
-      let mut vertex_state = GpuVertexState::new("vs_main", &cubemap_shader);
+      let mut vertex_state = GpuVertexState::new(&cubemap_shader);
+      vertex_state.entry_point("vs_main");
       vertex_state.buffers(&iter_to_array(&[
         GpuVertexBufferLayout::new(4. * 3., &iter_to_array(&[position_attribute_description])),
         GpuVertexBufferLayout::new(4. * 2., &iter_to_array(&[tex_coords_attribute_description])),
       ]));
-      let fragment_state = GpuFragmentState::new(
-        "fs_main",
+      let mut fragment_state = GpuFragmentState::new(
         &cubemap_shader,
         &iter_to_array(&[GpuColorTargetState::new(gpu.get_preferred_canvas_format())]),
       );
+      fragment_state.entry_point("fs_main");
       let pipeline_cubemap = device.create_render_pipeline(
         &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
           .label("Cubemap Render pipeline")
@@ -232,20 +234,20 @@ impl Renderer {
       } else {
         pass_encoder.set_pipeline(&self.pipeline);
       }
-      pass_encoder.set_vertex_buffer(0, &mesh.vertex_buffer);
+      pass_encoder.set_vertex_buffer(0, Some(&mesh.vertex_buffer));
 
       match mesh.material_type {
         MaterialType::CubeMap => {
-          pass_encoder.set_vertex_buffer(1, &mesh.texture_coordinates);
+          pass_encoder.set_vertex_buffer(1, Some(&mesh.texture_coordinates));
         }
         _ => {
-          pass_encoder.set_vertex_buffer(1, &mesh.vertex_colors);
-          pass_encoder.set_vertex_buffer(2, &mesh.texture_coordinates);
+          pass_encoder.set_vertex_buffer(1, Some(&mesh.vertex_colors));
+          pass_encoder.set_vertex_buffer(2, Some(&mesh.texture_coordinates));
         }
       }
 
-      pass_encoder.set_bind_group(0, &mesh.uniform_bind_group);
-      pass_encoder.set_bind_group(1, &mesh.texture_bind_group);
+      pass_encoder.set_bind_group(0, Some(&mesh.uniform_bind_group));
+      pass_encoder.set_bind_group(1, Some(&mesh.texture_bind_group));
 
       if matches!(mesh.material_type, MaterialType::CubeMap) {
         let mvp = viewport.view_cube() * model.to_homogeneous();
