@@ -93,6 +93,7 @@ features = [
   "GpuImageCopyExternalImage",
   "GpuImageCopyTextureTagged",
   "GpuSamplerDescriptor",
+  "GpuMultisampleState",
   "gpu_shader_stage",
   "gpu_buffer_usage",
   "gpu_texture_usage",

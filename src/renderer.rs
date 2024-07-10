@@ -1,29 +1,27 @@
-use crate::iter_to_array;
-use crate::mesh::MaterialType;
-use crate::mesh::Mesh;
-use crate::viewport::Viewport;
+use crate::{iter_to_array, mesh::MaterialType, Mesh, Viewport};
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Float32Array;
 use js_sys::Uint16Array;
-use nalgebra::Isometry3;
-use nalgebra::Matrix4;
 use nalgebra::Similarity3;
 use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-  gpu_buffer_usage, gpu_texture_usage, Blob, Document, GpuAdapter, GpuAddressMode, GpuBuffer,
+  gpu_buffer_usage, gpu_texture_usage, Blob, GpuAdapter, GpuAddressMode, GpuBuffer,
   GpuBufferDescriptor, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
   GpuColorTargetState, GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice,
-  GpuFilterMode, GpuFragmentState, GpuFrontFace, GpuIndexFormat, GpuLoadOp, GpuPrimitiveState,
-  GpuPrimitiveTopology, GpuRenderPassColorAttachment, GpuRenderPassDepthStencilAttachment,
-  GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor, GpuSampler,
-  GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor,
-  GpuTextureDimension, GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout,
-  GpuVertexFormat, GpuVertexState, HtmlCanvasElement, ImageBitmap, Response, Window,
+  GpuFilterMode, GpuFragmentState, GpuFrontFace, GpuIndexFormat, GpuLoadOp, GpuMultisampleState,
+  GpuPrimitiveState, GpuPrimitiveTopology, GpuRenderPassColorAttachment,
+  GpuRenderPassDepthStencilAttachment, GpuRenderPassDescriptor, GpuRenderPipeline,
+  GpuRenderPipelineDescriptor, GpuSampler, GpuSamplerDescriptor, GpuShaderModuleDescriptor,
+  GpuStoreOp, GpuTexture, GpuTextureDescriptor, GpuTextureDimension, GpuTextureFormat,
+  GpuVertexAttribute, GpuVertexBufferLayout, GpuVertexFormat, GpuVertexState, HtmlCanvasElement,
+  ImageBitmap, Response, Window,
 };
+
+const SAMPLE_COUNT: u32 = 4;
 
 pub struct Renderer {
   canvas: HtmlCanvasElement,
@@ -32,10 +30,35 @@ pub struct Renderer {
   pipeline: GpuRenderPipeline,
   pipeline_cubebox: GpuRenderPipeline,
   depth_texture: GpuTexture,
+  color_texture: GpuTexture,
   color_attachment: GpuRenderPassColorAttachment,
   depth_attachment: GpuRenderPassDepthStencilAttachment,
   render_pass_descriptor: GpuRenderPassDescriptor,
   sampler: GpuSampler,
+}
+
+pub fn get_window_dimension() -> (u32, u32) {
+  let window = window();
+  (
+    window
+      .inner_width()
+      .expect("Window has no width")
+      .as_f64()
+      .expect("Width isn't f64") as u32,
+    window
+      .inner_height()
+      .expect("Window has no height")
+      .as_f64()
+      .expect("Height isn't f64") as u32,
+  )
+}
+
+pub fn get_canvas_dimension(canvas: &HtmlCanvasElement) -> (f64, f64) {
+  let pixel_ratio = window().device_pixel_ratio();
+  (
+    canvas.client_width() as f64 * pixel_ratio,
+    canvas.client_height() as f64 * pixel_ratio,
+  )
 }
 
 impl Renderer {
@@ -62,10 +85,11 @@ impl Renderer {
     let mut ctx_config = GpuCanvasConfiguration::new(&device, gpu.get_preferred_canvas_format());
     ctx_config.alpha_mode(GpuCanvasAlphaMode::Premultiplied);
     context.configure(&ctx_config);
+    let color_texture = Self::create_render_target();
     let mut color_attachment = GpuRenderPassColorAttachment::new(
       GpuLoadOp::Clear,
       GpuStoreOp::Store,
-      &context.get_current_texture().create_view(),
+      &color_texture.create_view(),
     );
     color_attachment.clear_value(
       &JsValue::from_serde(&Color {
@@ -124,6 +148,7 @@ impl Renderer {
       let pipeline = device.create_render_pipeline(
         &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
           .label("Defualt Render pipeline")
+          .multisample(&GpuMultisampleState::new().count(SAMPLE_COUNT))
           .fragment(&fragment_state)
           .primitive(
             &GpuPrimitiveState::new()
@@ -158,6 +183,7 @@ impl Renderer {
       let pipeline_cubemap = device.create_render_pipeline(
         &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
           .label("Cubemap Render pipeline")
+          .multisample(&GpuMultisampleState::new().count(SAMPLE_COUNT))
           .fragment(&fragment_state)
           .primitive(
             &GpuPrimitiveState::new()
@@ -183,6 +209,7 @@ impl Renderer {
       context,
       device,
       depth_texture,
+      color_texture,
       depth_attachment,
       color_attachment,
       pipeline,
@@ -206,11 +233,30 @@ impl Renderer {
   pub fn pipeline_cubebox(&self) -> &GpuRenderPipeline {
     &self.pipeline_cubebox
   }
+  fn create_render_target(device: &GpuDevice, canvas: &HtmlCanvasElement) -> GpuTexture {
+    let (width, height) = get_canvas_dimension(canvas);
+    let gpu = window().navigator().gpu();
+    let mut desc = GpuTextureDescriptor::new(
+      gpu.get_preferred_canvas_format(),
+      &iter_to_array([width, height]),
+      gpu_texture_usage::RENDER_ATTACHMENT,
+    );
+    desc.sample_count(SAMPLE_COUNT);
+    device.create_texture(&desc)
+  }
+  pub fn resize(&mut self) {
+    let (width, height) = get_canvas_dimension(&self.canvas);
+    self.color_texture.destroy();
+    self.color_texture = self.create_render_target();
+  }
   pub fn render(&mut self, meshes: &[Mesh], models: &[Similarity3<f32>], viewport: &Viewport) {
     let queue = self.device.queue();
     self
       .color_attachment
-      .view(&self.context.get_current_texture().create_view());
+      .view(&self.color_texture.create_view());
+    self
+      .color_attachment
+      .resolve_target(&self.context.get_current_texture().create_view());
     self
       .render_pass_descriptor
       .color_attachments(&iter_to_array(&[JsValue::from(&self.color_attachment)]));
@@ -219,15 +265,9 @@ impl Renderer {
       .depth_stencil_attachment(&self.depth_attachment);
     let command_encoder = self.device.create_command_encoder();
     let pass_encoder = command_encoder.begin_render_pass(&self.render_pass_descriptor);
-    pass_encoder.set_viewport(
-      0.,
-      0.,
-      self.canvas.width() as f32,
-      self.canvas.height() as f32,
-      0.,
-      1.,
-    );
-    pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
+    let (width, height) = get_canvas_dimension(&self.canvas);
+    pass_encoder.set_viewport(0., 0., width as f32, height as f32, 0., 1.);
+    pass_encoder.set_scissor_rect(0, 0, width as u32, height as u32);
     for (mesh, model) in meshes.iter().zip(models.iter()) {
       if mesh.material_type == MaterialType::CubeMap {
         pass_encoder.set_pipeline(&self.pipeline_cubebox);
@@ -270,11 +310,6 @@ impl Renderer {
     }
     pass_encoder.end();
     queue.submit(&iter_to_array(&[command_encoder.finish()]));
-  }
-  pub fn resize(&self) {
-    let (width, height) = get_window_dimension();
-    self.canvas.set_width(width);
-    self.canvas.set_height(height);
   }
   pub fn create_buffer(&self, data: &[f32]) -> GpuBuffer {
     let byte_len = data.len() * 4;
@@ -325,22 +360,6 @@ impl Renderer {
     let (width, height) = (image.width(), image.height());
     Ok((image, Rect { width, height }))
   }
-}
-
-pub fn get_window_dimension() -> (u32, u32) {
-  let window = window();
-  (
-    window
-      .inner_width()
-      .expect("Window has no width")
-      .as_f64()
-      .expect("Width isn't f64") as u32,
-    window
-      .inner_height()
-      .expect("Window has no height")
-      .as_f64()
-      .expect("Height isn't f64") as u32,
-  )
 }
 
 #[derive(Serialize, Clone, Copy, Debug)]

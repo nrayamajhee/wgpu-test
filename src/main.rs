@@ -250,7 +250,7 @@ async fn async_main() -> Result<(), JsValue> {
         if dx == 0. && dy == 0. {
           body.reset_forces(true);
         } else {
-          body.apply_impulse(vector![dx * 0.1, 0., -dy * 0.1], true);
+          body.apply_impulse(vector![0., dx * 0.1,  -dy * 0.1], true);
         }
         viewport.borrow_mut().follow(*body.position());
         renderer
