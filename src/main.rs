@@ -108,7 +108,8 @@ async fn async_main() -> Result<(), JsValue> {
     let body = RigidBodyBuilder::dynamic()
       .sleeping(true)
       .translation(vector![0., 2., 0.])
-      .additional_mass(2.)
+      .additional_mass(1.)
+      .linear_damping(10.)
       .build();
 
     scene.add("sphere", mesh, body);
@@ -129,7 +130,6 @@ async fn async_main() -> Result<(), JsValue> {
     let body = RigidBodyBuilder::dynamic()
       .sleeping(false)
       .translation(vector![-4., 1., 0.])
-      .additional_mass(2.)
       .build();
     let ball = ColliderBuilder::ball(1.).build();
 
@@ -175,7 +175,7 @@ async fn async_main() -> Result<(), JsValue> {
     body().append_child(&ui)?;
   }
 
-  let movement = Rc::new(RefCell::new(Movement { dx: 0., dy: 0. }));
+  let movement = Rc::new(RefCell::new(Movement { dx: 0, dy: 0 }));
 
   {
     let viewport = viewport.clone();
@@ -196,22 +196,36 @@ async fn async_main() -> Result<(), JsValue> {
         .update_rot(me.movement_x(), me.movement_y(), 1.);
     });
   }
+  let next_delta = |prev, next| {
+    let val = prev + next;
+    if val >= 1 {
+      1
+    } else if val <= -1 {
+      -1
+    } else {
+      0
+    }
+  };
   {
     let movement = movement.clone();
     add_event_and_forget(&gloo_window(), "keydown", move |e| {
       let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
       match key.as_str() {
         "w" => {
-          movement.borrow_mut().dy += 1.;
+          let current_dy = movement.borrow().dy;
+          movement.borrow_mut().dy = next_delta(current_dy, 1);
         }
         "s" => {
-          movement.borrow_mut().dy -= 1.;
+          let current_dy = movement.borrow().dy;
+          movement.borrow_mut().dy = next_delta(current_dy, -1);
         }
         "a" => {
-          movement.borrow_mut().dx -= 1.;
+          let current_dx = movement.borrow().dx;
+          movement.borrow_mut().dx = next_delta(current_dx, -1);
         }
         "d" => {
-          movement.borrow_mut().dx += 1.;
+          let current_dx = movement.borrow().dx;
+          movement.borrow_mut().dx = next_delta(current_dx, 1);
         }
         _ => {}
       }
@@ -223,16 +237,20 @@ async fn async_main() -> Result<(), JsValue> {
       let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
       match key.as_str() {
         "w" => {
-          movement.borrow_mut().dy -= 1.;
+          let current_dy = movement.borrow().dy;
+          movement.borrow_mut().dy = next_delta(current_dy, -1);
         }
         "s" => {
-          movement.borrow_mut().dy += 1.;
+          let current_dy = movement.borrow().dy;
+          movement.borrow_mut().dy = next_delta(current_dy, 1);
         }
         "a" => {
-          movement.borrow_mut().dx += 1.;
+          let current_dx = movement.borrow().dx;
+          movement.borrow_mut().dx = next_delta(current_dx, 1);
         }
         "d" => {
-          movement.borrow_mut().dx -= 1.;
+          let current_dx = movement.borrow().dx;
+          movement.borrow_mut().dx = next_delta(current_dx, -1);
         }
         _ => {}
       }
@@ -247,10 +265,8 @@ async fn async_main() -> Result<(), JsValue> {
         scene.physics();
         let Movement { dx, dy } = *movement.borrow();
         let body = scene.get_body_mut("sphere").unwrap();
-        if dx == 0. && dy == 0. {
-          body.reset_forces(true);
-        } else {
-          body.apply_impulse(vector![dx * 0.1, 0., -dy * 0.1], true);
+        if dx != 0 || dy != 0 {
+          body.apply_impulse(vector![dx as f32, 0., -dy as f32], true);
         }
         viewport.borrow_mut().follow(*body.position());
         renderer

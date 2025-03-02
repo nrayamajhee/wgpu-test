@@ -1,11 +1,11 @@
 #[derive(Debug)]
 pub struct Movement {
-  pub dx: f32,
-  pub dy: f32,
+  pub dx: isize,
+  pub dy: isize,
 }
 
 impl Movement {
   pub fn new() -> Self {
-    Self { dx: 0., dy: 0. }
+    Self { dx: 0, dy: 0 }
   }
 }

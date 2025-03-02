@@ -4,9 +4,8 @@ use rapier3d::{
   dynamics::RigidBodyHandle,
   geometry::BroadPhaseMultiSap,
   prelude::{
-    BroadPhase, CCDSolver, Collider, ColliderHandle, ColliderSet, ImpulseJointSet,
-    IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline,
-    RigidBody, RigidBodySet,
+    CCDSolver, Collider, ColliderHandle, ColliderSet, ImpulseJointSet, IntegrationParameters,
+    IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline, RigidBody, RigidBodySet,
   },
 };
 
@@ -109,7 +108,8 @@ impl Scene {
   }
   pub fn physics(&mut self) {
     self.physics_pipeline.step(
-      &vector![0., -9.8, 0.],
+      // &vector![0., -9.8, 0.],
+      &vector![0., -0., 0.],
       &self.integration_parameters,
       &mut self.island_manager,
       &mut self.broad_phase,
