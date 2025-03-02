@@ -28,6 +28,12 @@ pub struct Scene {
   ccd_solver: CCDSolver,
 }
 
+impl Default for Scene {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl Scene {
   pub fn new() -> Self {
     let integration_parameters = IntegrationParameters::default();

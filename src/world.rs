@@ -4,7 +4,7 @@ use noise::{Fbm, NoiseFn, Perlin};
 use rapier3d::{dynamics::RigidBodyBuilder, geometry::ColliderBuilder};
 use wasm_bindgen::JsValue;
 
-use crate::{renderer::Color, Geometry, Material, Mesh, Renderer};
+use crate::{Geometry, Material, Mesh, Renderer};
 
 pub struct World {}
 
@@ -31,7 +31,7 @@ impl World {
         v[2] *= d as f32;
       }
       let mesh = Mesh::new(
-        &renderer,
+        renderer,
         &geo,
         &Material::vertex_color(
           geo

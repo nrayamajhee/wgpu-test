@@ -1,9 +1,8 @@
 use fluid::{Context, Signal};
-use gloo_timers::callback::Timeout;
 use gloo_utils::window;
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{renderer::Renderer, viewport::Viewport};
+use crate::{Renderer, Viewport};
 
 pub struct Game {
   fullscreen: Rc<Signal<bool>>,
@@ -21,7 +20,7 @@ impl Game {
     let paused = context.create_signal(true);
     {
       let paused = paused.clone();
-      let viewport = viewport.clone();
+      // let viewport = viewport.clone();
       fluid::add_event_and_forget(&document, "pointerlockchange", move |_| {
         let p = *paused.get();
         paused.set(!p);
@@ -39,7 +38,7 @@ impl Game {
       let viewport = viewport.clone();
       fluid::add_event_and_forget(&window, "resize", move |_| {
         renderer.borrow_mut().resize();
-        viewport.borrow_mut().resize(&renderer.borrow().canvas());
+        viewport.borrow_mut().resize(renderer.borrow().canvas());
       });
     }
     Self { fullscreen, paused }

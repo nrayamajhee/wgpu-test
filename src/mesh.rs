@@ -5,7 +5,6 @@ use genmesh::{
   generators::{IndexedPolygon, SharedVertex},
   EmitTriangles, Triangulate, Vertex,
 };
-use gloo_utils::format::JsValueSerdeExt;
 use js_sys::Object;
 use wasm_bindgen::JsValue;
 use web_sys::{
@@ -138,17 +137,12 @@ impl Mesh {
       renderer.pipeline()
     };
     let vertex_buffer = {
-      let vertices: Vec<f32> = geometry.vertices.iter().flatten().map(|f| *f).collect();
+      let vertices: Vec<f32> = geometry.vertices.iter().flatten().copied().collect();
       renderer.create_buffer(&vertices)
     };
     let index_buffer = renderer.create_index_buffer(&geometry.indices);
     let vertex_colors = if material.material_type == MaterialType::VertexColor {
-      let vertices: Vec<f32> = material
-        .vertex_colors
-        .iter()
-        .flatten()
-        .map(|f| *f)
-        .collect();
+      let vertices: Vec<f32> = material.vertex_colors.iter().flatten().copied().collect();
       renderer.create_buffer(&vertices)
     } else {
       renderer.create_buffer(&[])
@@ -157,7 +151,7 @@ impl Mesh {
       let vertices: Vec<f32> = material
         .texture_coordinates
         .iter()
-        .map(|f| *f)
+        .copied()
         .flatten()
         .collect();
       renderer.create_buffer(&vertices[..])
@@ -205,13 +199,13 @@ impl Mesh {
       }
       let mut entries = vec![JsValue::from(&GpuBindGroupEntry::new(
         0,
-        &renderer.texture_sampler(),
+        renderer.texture_sampler(),
       ))];
       if material.material_type == MaterialType::CubeMap {
         entries.push(JsValue::from(&GpuBindGroupEntry::new(
           1,
           &texture.create_view_with_descriptor(
-            &GpuTextureViewDescriptor::new().dimension(GpuTextureViewDimension::Cube),
+            GpuTextureViewDescriptor::new().dimension(GpuTextureViewDimension::Cube),
           ),
         )));
       } else {

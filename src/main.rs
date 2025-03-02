@@ -15,17 +15,16 @@ pub use scene::Scene;
 pub use viewport::Viewport;
 use world::World;
 
-use genmesh::{Triangulate, Vertices};
-use nalgebra::{Point3, Vector};
+use nalgebra::Vector;
 
 use fluid::{add_event_and_forget, on_animation_frame, Context};
 use fluid_macro::html;
-use genmesh::generators::{Cube, IcoSphere, IndexedPolygon, SharedVertex};
+use genmesh::generators::{Cube, IcoSphere};
 use gloo_console::log;
-use gloo_utils::{body, document, window as gloo_window};
+use gloo_utils::{body, window as gloo_window};
 use js_sys::Array;
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
+use web_sys::{KeyboardEvent, MouseEvent, WheelEvent};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -54,7 +53,7 @@ async fn async_main() -> Result<(), JsValue> {
   let viewport = Rc::new(RefCell::new(viewport));
   let mut scene = Scene::new();
 
-  body().append_child(&renderer.canvas())?;
+  body().append_child(renderer.canvas())?;
 
   {
     let geo = Geometry::from_genmesh(&Cube::new());
@@ -271,7 +270,7 @@ async fn async_main() -> Result<(), JsValue> {
         viewport.borrow_mut().follow(*body.position());
         renderer
           .borrow_mut()
-          .render(&scene.meshes(), &scene.simiarities(), &viewport.borrow());
+          .render(scene.meshes(), &scene.simiarities(), &viewport.borrow());
       }
       if first_frame {
         first_frame = false;

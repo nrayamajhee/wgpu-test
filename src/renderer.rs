@@ -6,15 +6,13 @@ use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::Float32Array;
 use js_sys::Uint16Array;
-use nalgebra::Isometry3;
-use nalgebra::Matrix4;
 use nalgebra::Similarity3;
 use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-  gpu_buffer_usage, gpu_texture_usage, Blob, Document, GpuAdapter, GpuAddressMode, GpuBuffer,
+  gpu_buffer_usage, gpu_texture_usage, Blob, GpuAdapter, GpuAddressMode, GpuBuffer,
   GpuBufferDescriptor, GpuCanvasAlphaMode, GpuCanvasConfiguration, GpuCanvasContext,
   GpuColorTargetState, GpuCompareFunction, GpuCullMode, GpuDepthStencilState, GpuDevice,
   GpuFilterMode, GpuFragmentState, GpuFrontFace, GpuIndexFormat, GpuLoadOp, GpuPrimitiveState,
@@ -22,7 +20,7 @@ use web_sys::{
   GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor, GpuSampler,
   GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor,
   GpuTextureDimension, GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout,
-  GpuVertexFormat, GpuVertexState, HtmlCanvasElement, ImageBitmap, Response, Window,
+  GpuVertexFormat, GpuVertexState, HtmlCanvasElement, ImageBitmap, Response,
 };
 
 pub struct Renderer {
@@ -39,6 +37,32 @@ pub struct Renderer {
 }
 
 impl Renderer {
+  fn create_depth_texture(
+    device: &GpuDevice,
+    width: u32,
+    height: u32,
+  ) -> (GpuTexture, GpuRenderPassDepthStencilAttachment) {
+    let depth_descriptor = GpuTextureDescriptor::new(
+      GpuTextureFormat::Depth24plusStencil8,
+      &iter_to_array(&[
+        JsValue::from_f64(width as f64),
+        JsValue::from_f64(height as f64),
+      ]),
+      gpu_texture_usage::RENDER_ATTACHMENT,
+    );
+
+    let depth_texture = device.create_texture(&depth_descriptor);
+    let mut depth_attachment =
+      GpuRenderPassDepthStencilAttachment::new(&depth_texture.create_view());
+    depth_attachment
+      .depth_clear_value(1.)
+      .depth_load_op(GpuLoadOp::Clear)
+      .depth_store_op(GpuStoreOp::Store)
+      .stencil_clear_value(0)
+      .stencil_load_op(GpuLoadOp::Clear)
+      .stencil_store_op(GpuStoreOp::Store);
+    (depth_texture, depth_attachment)
+  }
   pub async fn new() -> Result<Self, JsValue> {
     let canvas = window()
       .document()
@@ -76,24 +100,7 @@ impl Renderer {
       })
       .unwrap(),
     );
-    let depth_descriptor = GpuTextureDescriptor::new(
-      GpuTextureFormat::Depth24plusStencil8,
-      &iter_to_array(&[
-        JsValue::from_f64(width as f64),
-        JsValue::from_f64(height as f64),
-      ]),
-      gpu_texture_usage::RENDER_ATTACHMENT,
-    );
-    let depth_texture = device.create_texture(&depth_descriptor);
-    let mut depth_attachment =
-      GpuRenderPassDepthStencilAttachment::new(&depth_texture.create_view());
-    depth_attachment
-      .depth_clear_value(1.)
-      .depth_load_op(GpuLoadOp::Clear)
-      .depth_store_op(GpuStoreOp::Store)
-      .stencil_clear_value(0)
-      .stencil_load_op(GpuLoadOp::Clear)
-      .stencil_store_op(GpuStoreOp::Store);
+    let (depth_texture, depth_attachment) = Self::create_depth_texture(&device, width, height);
     let mut render_pass_descriptor =
       GpuRenderPassDescriptor::new(&iter_to_array(&[JsValue::from(&color_attachment)]));
     render_pass_descriptor.depth_stencil_attachment(&depth_attachment);
@@ -122,11 +129,11 @@ impl Renderer {
       );
       fragment_state.entry_point("fs_main");
       let pipeline = device.create_render_pipeline(
-        &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
+        GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
           .label("Defualt Render pipeline")
           .fragment(&fragment_state)
           .primitive(
-            &GpuPrimitiveState::new()
+            GpuPrimitiveState::new()
               .front_face(GpuFrontFace::Ccw)
               .cull_mode(GpuCullMode::Back)
               .topology(GpuPrimitiveTopology::TriangleList),
@@ -156,11 +163,11 @@ impl Renderer {
       );
       fragment_state.entry_point("fs_main");
       let pipeline_cubemap = device.create_render_pipeline(
-        &GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
+        GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
           .label("Cubemap Render pipeline")
           .fragment(&fragment_state)
           .primitive(
-            &GpuPrimitiveState::new()
+            GpuPrimitiveState::new()
               .front_face(GpuFrontFace::Ccw)
               .cull_mode(GpuCullMode::Front)
               .topology(GpuPrimitiveTopology::TriangleList),
@@ -251,12 +258,12 @@ impl Renderer {
 
       if matches!(mesh.material_type, MaterialType::CubeMap) {
         let mvp = viewport.view_cube() * model.to_homogeneous();
-        let uniforms = Float32Array::from(&mvp.as_slice()[..]);
+        let uniforms = Float32Array::from(mvp.as_slice());
         queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &uniforms);
       } else {
         let mvp = viewport.view_proj() * model.to_homogeneous();
         let Color { r, g, b, a } = mesh.color;
-        let mut uniforms: Vec<f32> = mvp.into_iter().map(|f| *f).collect();
+        let mut uniforms: Vec<f32> = mvp.into_iter().copied().collect();
         uniforms.push(r);
         uniforms.push(g);
         uniforms.push(b);
@@ -271,41 +278,44 @@ impl Renderer {
     pass_encoder.end();
     queue.submit(&iter_to_array(&[command_encoder.finish()]));
   }
-  pub fn resize(&self) {
+  pub fn resize(&mut self) {
     let (width, height) = get_window_dimension();
     self.canvas.set_width(width);
     self.canvas.set_height(height);
+    let (depth_texture, depth_attachment) = Self::create_depth_texture(&self.device, width, height);
+    self.depth_texture = depth_texture;
+    self.depth_attachment = depth_attachment;
   }
   pub fn create_buffer(&self, data: &[f32]) -> GpuBuffer {
     let byte_len = data.len() * 4;
-    let size = byte_len + 3 & !3;
+    let size = (byte_len + 3) & !3;
     let buffer = self.device.create_buffer(
-      &GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
+      GpuBufferDescriptor::new(size as f64, gpu_buffer_usage::VERTEX).mapped_at_creation(true),
     );
     let write_array = Float32Array::new(&buffer.get_mapped_range());
-    write_array.set(&Float32Array::from(&data[..]), 0);
+    write_array.set(&Float32Array::from(data), 0);
     buffer.unmap();
     buffer
   }
   pub fn create_index_buffer(&self, data: &[u16]) -> GpuBuffer {
     let size = data.len() * 2;
-    let size = size + 3 & !3;
+    let size = (size + 3) & !3;
     let buffer = self.device.create_buffer(
-      &GpuBufferDescriptor::new(
+      GpuBufferDescriptor::new(
         size as f64,
         gpu_buffer_usage::INDEX | gpu_buffer_usage::COPY_DST,
       )
       .mapped_at_creation(true),
     );
     let write_array = Uint16Array::new(&buffer.get_mapped_range());
-    write_array.set(&Uint16Array::from(&data[..]), 0);
+    write_array.set(&Uint16Array::from(data), 0);
     buffer.unmap();
     buffer
   }
   pub fn create_texture(&self, rect: &Rect, num_images: u32) -> GpuTexture {
     let mut desc = GpuTextureDescriptor::new(
       GpuTextureFormat::Rgba8unorm,
-      &iter_to_array([rect.width as u32, rect.height as u32, num_images]),
+      &iter_to_array([rect.width, rect.height, num_images]),
       gpu_texture_usage::TEXTURE_BINDING
         | gpu_texture_usage::COPY_DST
         | gpu_texture_usage::RENDER_ATTACHMENT,
