@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Matrix4, Perspective3, Unit, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Matrix4, Perspective3, Unit, UnitQuaternion, Vector2, Vector3};
 use std::f32::consts::PI;
 use web_sys::HtmlCanvasElement;
 
@@ -9,10 +9,6 @@ pub struct Viewport {
   zoom: bool,
   rotate: bool,
 }
-
-// const OPENGL_TO_WGPU: Matrix4<f32> = Matrix4::new(
-//   1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0,
-// );
 
 impl Viewport {
   pub fn new(canvas: &HtmlCanvasElement) -> Self {
@@ -77,5 +73,15 @@ impl Viewport {
   pub fn lock(&mut self) {
     self.zoom = false;
     self.rotate = false;
+  }
+
+  pub fn facing_xz(&self) -> Vector2<f32> {
+    let forward_world = self.view.rotation.inverse() * (-Vector3::z());
+    let xz = Vector2::new(forward_world.x, forward_world.z);
+    if xz.norm() < 1e-6 {
+      Vector2::new(0., -1.)
+    } else {
+      xz.normalize()
+    }
   }
 }

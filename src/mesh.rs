@@ -5,7 +5,9 @@ use genmesh::{
   generators::{IndexedPolygon, SharedVertex},
   EmitTriangles, Triangulate, Vertex,
 };
+use gltf::mesh::util::ReadIndices;
 use js_sys::Object;
+use nalgebra::{Matrix4, Similarity, Similarity3, Translation3, UnitQuaternion};
 use wasm_bindgen::JsValue;
 use web_sys::{
   gpu_buffer_usage, GpuBindGroup, GpuBindGroupDescriptor, GpuBindGroupEntry, GpuBuffer,
@@ -26,6 +28,7 @@ pub struct Material {
   pub vertex_colors: Vec<[f32; 3]>,
   pub texture_coordinates: Vec<[f32; 2]>,
   pub texture_src: Vec<String>,
+  pub texture_bytes: Vec<Vec<u8>>,
   pub color: Color,
 }
 
@@ -36,6 +39,7 @@ impl Material {
       vertex_colors: vec![],
       texture_coordinates: vec![],
       texture_src: vec![],
+      texture_bytes: vec![],
       color,
     }
   }
@@ -45,6 +49,7 @@ impl Material {
       vertex_colors: colors,
       texture_coordinates: vec![],
       texture_src: vec![],
+      texture_bytes: vec![],
       color: Color {
         r: 1.,
         g: 1.,
@@ -59,12 +64,23 @@ impl Material {
       vertex_colors: vec![],
       texture_coordinates: coordinates,
       texture_src: vec![src.to_string()],
+      texture_bytes: vec![],
       color: Color {
-        r: 0.1,
-        g: 0.1,
-        b: 0.1,
+        r: 1.,
+        g: 1.,
+        b: 1.,
         a: 1.,
       },
+    }
+  }
+  pub fn textured_bytes(bytes: Vec<u8>, coordinates: Vec<[f32; 2]>, color: Color) -> Self {
+    Self {
+      material_type: MaterialType::Textured,
+      vertex_colors: vec![],
+      texture_coordinates: coordinates,
+      texture_src: vec![],
+      texture_bytes: vec![bytes],
+      color,
     }
   }
   pub fn cubemap(src_set: [&str; 6]) -> Self {
@@ -73,6 +89,7 @@ impl Material {
       vertex_colors: vec![],
       texture_coordinates: vec![],
       texture_src: src_set.iter().map(|s| s.to_string()).collect(),
+      texture_bytes: vec![],
       color: Color {
         r: 0.,
         g: 0.,
@@ -85,7 +102,7 @@ impl Material {
 
 pub struct Geometry {
   pub vertices: Vec<[f32; 3]>,
-  pub indices: Vec<u16>,
+  pub indices: Vec<u32>,
 }
 
 impl Geometry {
@@ -98,13 +115,149 @@ impl Geometry {
       .shared_vertex_iter()
       .map(|v| v.pos.into())
       .collect();
-    let indices: Vec<u16> = primitive
+    let indices: Vec<u32> = primitive
       .indexed_polygon_iter()
       .triangulate()
-      .flat_map(|i| [i.x as u16, i.y as u16, i.z as u16])
+      .flat_map(|i| [i.x as u32, i.y as u32, i.z as u32])
       .collect();
     Geometry { vertices, indices }
   }
+
+  pub fn plane(half_size: f32) -> Self {
+    let s = half_size;
+    let vertices = vec![[-s, 0., -s], [s, 0., -s], [s, 0., s], [-s, 0., s]];
+    let indices = vec![0, 2, 1, 0, 3, 2];
+    Geometry { vertices, indices }
+  }
+
+  //vibe coded
+  pub fn from_gltf(data: &[u8]) -> Result<Vec<(Self, Material, Similarity3<f32>)>, gltf::Error> {
+    let gltf::Gltf { document, blob } = gltf::Gltf::from_slice(data)?;
+
+    let buffer_data: Vec<Vec<u8>> = document
+      .buffers()
+      .map(|buf| match buf.source() {
+        gltf::buffer::Source::Bin => blob.clone().unwrap_or_default(),
+        gltf::buffer::Source::Uri(_) => vec![],
+      })
+      .collect();
+
+    let image_data: Vec<Vec<u8>> = document
+      .images()
+      .map(|img| match img.source() {
+        gltf::image::Source::View { view, .. } => {
+          let buf = &buffer_data[view.buffer().index()];
+          buf[view.offset()..view.offset() + view.length()].to_vec()
+        }
+        gltf::image::Source::Uri { .. } => vec![],
+      })
+      .collect();
+
+    let mut out: Vec<(Self, Material, Similarity3<f32>)> = Vec::new();
+
+    let scenes: Vec<_> = document
+      .default_scene()
+      .map(|s| vec![s])
+      .unwrap_or_else(|| document.scenes().collect());
+
+    for scene in scenes {
+      for node in scene.nodes() {
+        collect_node(
+          &node,
+          &Matrix4::identity(),
+          &buffer_data,
+          &image_data,
+          &mut out,
+        );
+      }
+    }
+
+    Ok(out)
+  }
+}
+
+fn collect_node(
+  node: &gltf::Node<'_>,
+  parent_transform: &Matrix4<f32>,
+  buffer_data: &[Vec<u8>],
+  image_data: &[Vec<u8>],
+  out: &mut Vec<(Geometry, Material, Similarity3<f32>)>,
+) {
+  let local = Matrix4::from_column_slice(node.transform().matrix().as_flattened());
+  let transform = parent_transform * local;
+
+  if let Some(mesh) = node.mesh() {
+    for primitive in mesh.primitives() {
+      let reader = primitive.reader(|buf| buffer_data.get(buf.index()).map(|v| v.as_slice()));
+
+      let positions: Vec<[f32; 3]> = match reader.read_positions() {
+        Some(iter) => iter.collect(),
+        None => continue,
+      };
+
+      let mut indices: Vec<u32> = Vec::new();
+      match reader.read_indices() {
+        Some(ReadIndices::U8(iter)) => indices.extend(iter.map(|i| i as u32)),
+        Some(ReadIndices::U16(iter)) => indices.extend(iter.map(|i| i as u32)),
+        Some(ReadIndices::U32(iter)) => indices.extend(iter),
+        None => indices.extend(0..positions.len() as u32),
+      }
+
+      let pbr = primitive.material().pbr_metallic_roughness();
+      let [r, g, b, a] = pbr.base_color_factor();
+      let base_color = Color { r, g, b, a };
+
+      let material = if let Some(tex_info) = pbr.base_color_texture() {
+        let tex_coords: Vec<[f32; 2]> = reader
+          .read_tex_coords(tex_info.tex_coord())
+          .map(|tc| tc.into_f32().collect())
+          .unwrap_or_default();
+        let image_index = tex_info.texture().source().index();
+        let bytes = image_data.get(image_index).cloned().unwrap_or_default();
+        Material::textured_bytes(bytes, tex_coords, base_color)
+      } else {
+        Material::new(base_color)
+      };
+
+      let (t, r, s) = decompose_matrix(&transform);
+      let similarity = Similarity::from_parts(t, r, s);
+      out.push((
+        Geometry {
+          vertices: positions,
+          indices,
+        },
+        material,
+        similarity,
+      ));
+    }
+  }
+
+  for child in node.children() {
+    collect_node(&child, &transform, buffer_data, image_data, out);
+  }
+}
+
+fn decompose_matrix(m: &Matrix4<f32>) -> (Translation3<f32>, UnitQuaternion<f32>, f32) {
+  let translation = Translation3::new(m[(0, 3)], m[(1, 3)], m[(2, 3)]);
+  let scale = {
+    let sx = nalgebra::Vector3::new(m[(0, 0)], m[(1, 0)], m[(2, 0)]).norm();
+    let sy = nalgebra::Vector3::new(m[(0, 1)], m[(1, 1)], m[(2, 1)]).norm();
+    let sz = nalgebra::Vector3::new(m[(0, 2)], m[(1, 2)], m[(2, 2)]).norm();
+    (sx + sy + sz) / 3.0
+  };
+  let rot_mat = nalgebra::Matrix3::new(
+    m[(0, 0)] / scale,
+    m[(0, 1)] / scale,
+    m[(0, 2)] / scale,
+    m[(1, 0)] / scale,
+    m[(1, 1)] / scale,
+    m[(1, 2)] / scale,
+    m[(2, 0)] / scale,
+    m[(2, 1)] / scale,
+    m[(2, 2)] / scale,
+  );
+  let rotation = UnitQuaternion::from_matrix(&rot_mat);
+  (translation, rotation, scale)
 }
 
 pub struct Mesh {
@@ -140,7 +293,7 @@ impl Mesh {
       let vertices: Vec<f32> = geometry.vertices.iter().flatten().copied().collect();
       renderer.create_buffer(&vertices)
     };
-    let index_buffer = renderer.create_index_buffer(&geometry.indices);
+    let index_buffer = renderer.create_index_buffer(&geometry.indices[..]);
     let vertex_colors = if material.material_type == MaterialType::VertexColor {
       let vertices: Vec<f32> = material.vertex_colors.iter().flatten().copied().collect();
       renderer.create_buffer(&vertices)
@@ -164,6 +317,13 @@ impl Mesh {
       let mut rect = None;
       for each in material.texture_src.iter() {
         let (texture, r) = Renderer::create_bitmap(each).await?;
+        if rect.is_none() {
+          rect = Some(r);
+        }
+        bitmaps.push(texture);
+      }
+      for bytes in material.texture_bytes.iter() {
+        let (texture, r) = Renderer::create_bitmap_from_bytes(bytes).await?;
         if rect.is_none() {
           rect = Some(r);
         }

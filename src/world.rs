@@ -51,11 +51,7 @@ impl World {
         .iter()
         .map(|[x, y, z]| Point3::new(x * 1000., y * 1000., z * 1000.))
         .collect();
-      let indices: Vec<[u32; 3]> = geo
-        .indices
-        .chunks(3)
-        .map(|v| [v[0] as u32, v[1] as u32, v[2] as u32])
-        .collect();
+      let indices: Vec<[u32; 3]> = geo.indices.chunks(3).map(|v| [v[0], v[1], v[2]]).collect();
       let lithocollider = ColliderBuilder::convex_mesh(vertices, &indices)
         .unwrap()
         .build();
@@ -63,7 +59,7 @@ impl World {
       let body = RigidBodyBuilder::fixed()
         .translation(vector![0., -1010., 0.])
         .build();
-      scene.add_w_scale_collider("lithosphere", mesh, body, lithocollider, 1000.);
+      scene.add_w_scale_collider("lithosphere", Some(mesh), body, lithocollider, 1000.0);
     }
     Ok(Self {})
   }

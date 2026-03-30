@@ -1,12 +1,12 @@
 use crate::iter_to_array;
 use crate::mesh::MaterialType;
-use crate::mesh::Mesh;
+use crate::scene::Scene;
 use crate::viewport::Viewport;
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
+use js_sys::ArrayBuffer;
 use js_sys::Float32Array;
-use js_sys::Uint16Array;
-use nalgebra::Similarity3;
+use js_sys::Uint8Array;
 use serde::Serialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
@@ -213,7 +213,8 @@ impl Renderer {
   pub fn pipeline_cubebox(&self) -> &GpuRenderPipeline {
     &self.pipeline_cubebox
   }
-  pub fn render(&mut self, meshes: &[Mesh], models: &[Similarity3<f32>], viewport: &Viewport) {
+  pub fn render(&mut self, scene: &Scene, viewport: &Viewport) {
+    let meshes = scene.meshes();
     let queue = self.device.queue();
     self
       .color_attachment
@@ -235,7 +236,7 @@ impl Renderer {
       1.,
     );
     pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
-    for (mesh, model) in meshes.iter().zip(models.iter()) {
+    for (mesh, transform) in meshes.iter() {
       if mesh.material_type == MaterialType::CubeMap {
         pass_encoder.set_pipeline(&self.pipeline_cubebox);
       } else {
@@ -257,11 +258,11 @@ impl Renderer {
       pass_encoder.set_bind_group(1, Some(&mesh.texture_bind_group));
 
       if matches!(mesh.material_type, MaterialType::CubeMap) {
-        let mvp = viewport.view_cube() * model.to_homogeneous();
+        let mvp = viewport.view_cube() * transform.to_homogeneous();
         let uniforms = Float32Array::from(mvp.as_slice());
         queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &uniforms);
       } else {
-        let mvp = viewport.view_proj() * model.to_homogeneous();
+        let mvp = viewport.view_proj() * transform.to_homogeneous();
         let Color { r, g, b, a } = mesh.color;
         let mut uniforms: Vec<f32> = mvp.into_iter().copied().collect();
         uniforms.push(r);
@@ -272,7 +273,7 @@ impl Renderer {
         let uniforms = Float32Array::from(&uniforms[..]);
         queue.write_buffer_with_u32_and_buffer_source(&mesh.uniform_buffer, 0, &uniforms);
       }
-      pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint16);
+      pass_encoder.set_index_buffer(&mesh.index_buffer, GpuIndexFormat::Uint32);
       pass_encoder.draw_indexed(mesh.index_count);
     }
     pass_encoder.end();
@@ -297,8 +298,8 @@ impl Renderer {
     buffer.unmap();
     buffer
   }
-  pub fn create_index_buffer(&self, data: &[u16]) -> GpuBuffer {
-    let size = data.len() * 2;
+  pub fn create_index_buffer(&self, data: &[u32]) -> GpuBuffer {
+    let size = data.len() * 4;
     let size = (size + 3) & !3;
     let buffer = self.device.create_buffer(
       GpuBufferDescriptor::new(
@@ -307,8 +308,8 @@ impl Renderer {
       )
       .mapped_at_creation(true),
     );
-    let write_array = Uint16Array::new(&buffer.get_mapped_range());
-    write_array.set(&Uint16Array::from(data), 0);
+    let write_array = js_sys::Uint32Array::new(&buffer.get_mapped_range());
+    write_array.set(&js_sys::Uint32Array::from(data), 0);
     buffer.unmap();
     buffer
   }
@@ -330,10 +331,32 @@ impl Renderer {
       .await?
       .dyn_into::<Response>()?;
     let blob = JsFuture::from(res.blob()?).await?.dyn_into::<Blob>()?;
+    Self::bitmap_from_blob(blob).await
+  }
+
+  pub async fn create_bitmap_from_bytes(bytes: &[u8]) -> Result<(ImageBitmap, Rect), JsValue> {
+    let uint8 = Uint8Array::from(bytes);
+    let parts = js_sys::Array::new();
+    parts.push(&uint8);
+    let blob = Blob::new_with_u8_array_sequence(&parts)?;
+    Self::bitmap_from_blob(blob).await
+  }
+
+  async fn bitmap_from_blob(blob: Blob) -> Result<(ImageBitmap, Rect), JsValue> {
     let bitmap = JsFuture::from(window().create_image_bitmap_with_blob(&blob)?).await?;
     let image = bitmap.dyn_into::<ImageBitmap>()?;
     let (width, height) = (image.width(), image.height());
     Ok((image, Rect { width, height }))
+  }
+
+  pub async fn fetch_bytes(src: &str) -> Result<Vec<u8>, JsValue> {
+    let res = JsFuture::from(window().fetch_with_str(src))
+      .await?
+      .dyn_into::<Response>()?;
+    let buf = JsFuture::from(res.array_buffer()?)
+      .await?
+      .dyn_into::<ArrayBuffer>()?;
+    Ok(Uint8Array::new(&buf).to_vec())
   }
 }
 

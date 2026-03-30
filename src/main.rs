@@ -1,30 +1,32 @@
+mod backdrop;
 mod game;
 mod mesh;
 mod movement;
+mod player;
 mod renderer;
 mod scene;
 mod viewport;
 mod world;
 
+use backdrop::Backdrop;
 pub use game::Game;
 pub use mesh::{Geometry, Material, Mesh};
 use movement::Movement;
+use player::Player;
 use renderer::Color;
 pub use renderer::Renderer;
-pub use scene::Scene;
+pub use scene::{NodeBundle, Scene, SceneNode};
 pub use viewport::Viewport;
 use world::World;
 
-use nalgebra::Vector;
+use nalgebra::{Similarity3, Translation3, UnitQuaternion};
 
-use fluid::{add_event_and_forget, on_animation_frame, Context};
+use fluid::{on_animation_frame, Context};
 use fluid_macro::html;
-use genmesh::generators::{Cube, IcoSphere};
 use gloo_console::log;
-use gloo_utils::{body, window as gloo_window};
+use gloo_utils::body;
 use js_sys::Array;
 use wasm_bindgen::prelude::*;
-use web_sys::{KeyboardEvent, MouseEvent, WheelEvent};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -51,89 +53,41 @@ async fn async_main() -> Result<(), JsValue> {
   let viewport = Viewport::new(renderer.canvas());
   let ctx = Context::new();
   let viewport = Rc::new(RefCell::new(viewport));
-  let mut scene = Scene::new();
+  let scene = Rc::new(RefCell::new(Scene::new()));
 
   body().append_child(renderer.canvas())?;
 
+  Backdrop::new(&renderer, &mut scene.borrow_mut()).await?;
+
   {
-    let geo = Geometry::from_genmesh(&Cube::new());
-    let mesh = Mesh::new(
-      &renderer,
-      &geo,
-      &Material::textured(
-        "img/icon.png",
-        geo
-          .vertices
-          .iter()
-          .map(|v| [(v[0] + 1.) / 2., 1. - (v[1] + 1.) / 2.])
-          .collect(),
-      ),
-    )
-    .await?;
-
-    let body = RigidBodyBuilder::dynamic()
+    let car_body = RigidBodyBuilder::dynamic()
       .sleeping(false)
-      .angvel(Vector::y())
-      .translation(vector![4., 4., 0.])
-      .build();
-
-    scene.add("cube", mesh, body);
-
-    let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
-    let mesh = Mesh::new(
-      &renderer,
-      &geo,
-      &Material::cubemap([
-        "img/milkyway/posx.jpg",
-        "img/milkyway/negx.jpg",
-        "img/milkyway/posy.jpg",
-        "img/milkyway/negy.jpg",
-        "img/milkyway/posz.jpg",
-        "img/milkyway/negz.jpg",
-      ]),
-    )
-    .await?;
-
-    let body = RigidBodyBuilder::fixed().build();
-    scene.add_w_scale("skybox", mesh, body, 10000.);
-
-    let mesh = Mesh::new(
-      &renderer,
-      &Geometry::from_genmesh(&IcoSphere::subdivide(3)),
-      &Material::new(Color::rgb(1., 0., 0.)),
-    )
-    .await?;
-
-    let body = RigidBodyBuilder::dynamic()
-      .sleeping(true)
-      .translation(vector![0., 2., 0.])
+      .translation(vector![0., 0., 0.])
       .additional_mass(1.)
       .linear_damping(10.)
       .build();
-
-    scene.add("sphere", mesh, body);
+    let car_collider = ColliderBuilder::ball(1.).build();
+    scene
+      .borrow_mut()
+      .add_w_scale_collider("car", None, car_body, car_collider, 1.);
+    let car_node = Player::node(&renderer).await?;
+    scene.borrow_mut().insert_bundle(car_node);
   }
 
-  // Implement scene node
-  World::new(&renderer, &mut scene).await?;
+  let player = Player::new(&renderer, scene.clone(), viewport.clone()).await?;
 
   {
-    let geo = Geometry::from_genmesh(&IcoSphere::subdivide(3));
-    let mesh = Mesh::new(
-      &renderer,
-      &geo,
-      &Material::vertex_color(geo.vertices.clone()),
-    )
-    .await?;
-
-    let body = RigidBodyBuilder::dynamic()
-      .sleeping(false)
-      .translation(vector![-4., 1., 0.])
-      .build();
-    let ball = ColliderBuilder::ball(1.).build();
-
-    scene.add_w_scale_collider("vertex_cube", mesh, body, ball, 1.);
+    let geo = Geometry::plane(10.);
+    let mesh = Mesh::new(&renderer, &geo, &Material::new(Color::rgb(0.1, 0.1, 0.1))).await?;
+    let transform = Similarity3::from_parts(
+      Translation3::new(0., -1., 0.),
+      UnitQuaternion::identity(),
+      1.,
+    );
+    scene.borrow_mut().add_static("plane", mesh, transform);
   }
+
+  World::new(&renderer, &mut scene.borrow_mut()).await?;
 
   let renderer = Rc::new(RefCell::new(renderer));
   let game = Rc::new(Game::new(&ctx, renderer.clone(), viewport.clone()));
@@ -174,107 +128,27 @@ async fn async_main() -> Result<(), JsValue> {
     body().append_child(&ui)?;
   }
 
-  let movement = Rc::new(RefCell::new(Movement { dx: 0, dy: 0 }));
-
-  {
-    let viewport = viewport.clone();
-
-    fluid::add_event_and_forget(&gloo_window(), "wheel", move |e| {
-      viewport
-        .borrow_mut()
-        .update_zoom(e.dyn_into::<WheelEvent>().unwrap().delta_y() as i32);
-    });
-  }
-  {
-    let viewport = viewport.clone();
-
-    add_event_and_forget(&gloo_window(), "mousemove", move |e| {
-      let me = e.dyn_into::<MouseEvent>().unwrap();
-      viewport
-        .borrow_mut()
-        .update_rot(me.movement_x(), me.movement_y(), 1.);
-    });
-  }
-  let next_delta = |prev, next| {
-    let val = prev + next;
-    if val >= 1 {
-      1
-    } else if val <= -1 {
-      -1
-    } else {
-      0
-    }
-  };
-  {
-    let movement = movement.clone();
-    add_event_and_forget(&gloo_window(), "keydown", move |e| {
-      let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
-      match key.as_str() {
-        "w" => {
-          let current_dy = movement.borrow().dy;
-          movement.borrow_mut().dy = next_delta(current_dy, 1);
-        }
-        "s" => {
-          let current_dy = movement.borrow().dy;
-          movement.borrow_mut().dy = next_delta(current_dy, -1);
-        }
-        "a" => {
-          let current_dx = movement.borrow().dx;
-          movement.borrow_mut().dx = next_delta(current_dx, -1);
-        }
-        "d" => {
-          let current_dx = movement.borrow().dx;
-          movement.borrow_mut().dx = next_delta(current_dx, 1);
-        }
-        _ => {}
-      }
-    });
-  }
-  {
-    let movement = movement.clone();
-    add_event_and_forget(&gloo_window(), "keyup", move |e| {
-      let key = e.dyn_into::<KeyboardEvent>().unwrap().key();
-      match key.as_str() {
-        "w" => {
-          let current_dy = movement.borrow().dy;
-          movement.borrow_mut().dy = next_delta(current_dy, -1);
-        }
-        "s" => {
-          let current_dy = movement.borrow().dy;
-          movement.borrow_mut().dy = next_delta(current_dy, 1);
-        }
-        "a" => {
-          let current_dx = movement.borrow().dx;
-          movement.borrow_mut().dx = next_delta(current_dx, 1);
-        }
-        "d" => {
-          let current_dx = movement.borrow().dx;
-          movement.borrow_mut().dx = next_delta(current_dx, -1);
-        }
-        _ => {}
-      }
-    });
-  }
-
-  let mut first_frame = true;
+  let movement = Movement::new();
+  movement.register_key_bindings();
+  movement.register_mouse_bindings(viewport.clone());
 
   on_animation_frame(
     move |_| {
-      if !game.paused() || first_frame {
-        scene.physics();
-        let Movement { dx, dy } = *movement.borrow();
-        let body = scene.get_body_mut("sphere").unwrap();
+      if !game.paused() {
+        scene.borrow_mut().physics();
+        scene.borrow_mut().sync_transforms();
+        let dx = movement.dx();
+        let dy = movement.dy();
+        player.face_viewport();
         if dx != 0 || dy != 0 {
-          body.apply_impulse(vector![dx as f32, 0., -dy as f32], true);
+          player.move_(dx, dy);
         }
-        viewport.borrow_mut().follow(*body.position());
-        renderer
-          .borrow_mut()
-          .render(scene.meshes(), &scene.simiarities(), &viewport.borrow());
+        let pos = *scene.borrow().get_body("car").unwrap().position();
+        viewport.borrow_mut().follow(pos);
       }
-      if first_frame {
-        first_frame = false;
-      }
+      renderer
+        .borrow_mut()
+        .render(&scene.borrow(), &viewport.borrow());
     },
     None,
   );
