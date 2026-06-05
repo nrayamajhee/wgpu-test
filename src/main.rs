@@ -98,29 +98,29 @@ async fn async_main() -> Result<(), JsValue> {
     let w1 = game.clone();
     let w2 = game.clone();
     let ui = html! {
-        div class=[ctx, [game] -> &format!("overlay {}",if game.paused() {"shown"} else {""})] {
+        div class=#{ |game| &format!("overlay {}", if game.paused() { "shown" } else { "" }) } {
             div class="pause-menu" {
-             h1 {"Pause Menu" }
+             h1 { "Pause Menu" }
              div class="buttons" {
                  button
                  class="resume-btn"
-                 @click=(move |_| {
+                 @click={ move |_| {
                      w1.resume(renderer.clone(), &mut viewport.borrow_mut())
-                 })
+                 } }
                  { "Resume" }
                  button
-                 @click=(move |_| {
+                 @click={ move |_| {
                      w2.toggle_fullscreen();
-                 })
-                 {[
-                     ctx,
-                     [game] ->
-                     if game.fullscreen() {
-                         "Exit fullscreen"
-                     } else {
-                         "Go fullscreeen"
+                 } }
+                 {
+                     #{ |game|
+                         if game.fullscreen() {
+                             "Exit fullscreen"
+                         } else {
+                             "Go fullscreeen"
+                         }
                      }
-                 ]}
+                 }
              }
             }
         }

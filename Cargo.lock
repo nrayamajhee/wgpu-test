@@ -212,7 +212,7 @@ dependencies = [
 [[package]]
 name = "fluid"
 version = "0.1.0"
-source = "git+https://github.com/nrayamajhee/fluid.git#70f00940e5880413d170fe0e3c0d80537b7caeb7"
+source = "git+https://github.com/nrayamajhee/fluid.git#5d724f54b00922536731703f08612739301d5dda"
 dependencies = [
  "gloo-timers",
  "gloo-utils",
@@ -224,7 +224,7 @@ dependencies = [
 [[package]]
 name = "fluid-macro"
 version = "0.1.0"
-source = "git+https://github.com/nrayamajhee/fluid.git#70f00940e5880413d170fe0e3c0d80537b7caeb7"
+source = "git+https://github.com/nrayamajhee/fluid.git#5d724f54b00922536731703f08612739301d5dda"
 dependencies = [
  "fluid",
  "maud",
