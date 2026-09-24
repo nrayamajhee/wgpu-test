@@ -1,6 +1,5 @@
 //! Pause overlay UI. See [`PauseMenu`].
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use fluid::Context;
@@ -8,14 +7,15 @@ use fluid_macro::html;
 use wasm_bindgen::prelude::*;
 use web_sys::Element;
 
-use crate::core::{AppState, Renderer};
+use crate::core::AppState;
 
 /// Overlay with **Resume**, **fullscreen toggle** and **Documentation** buttons.
 ///
 /// The docs link is relative (`docs/`), so it resolves under any Trunk
 /// `public_url`; the docs are built by `scripts/build-docs.nu`.
 ///
-/// Shown (`.overlay.shown`) while [`AppState::paused`] is true.
+/// Shown (`.overlay.shown`) while [`AppState::paused`] is true. Buttons only
+/// act on [`AppState`]; the frame loop applies the resulting state.
 pub struct PauseMenu;
 
 impl PauseMenu {
@@ -25,13 +25,8 @@ impl PauseMenu {
   ///
   /// # Errors
   /// If DOM element creation fails.
-  pub fn new(
-    ctx: &Context,
-    app_state: &Rc<AppState>,
-    renderer: &Rc<RefCell<Renderer>>,
-  ) -> Result<Element, JsValue> {
+  pub fn new(ctx: &Context, app_state: &Rc<AppState>) -> Result<Element, JsValue> {
     let app_state = app_state.clone();
-    let renderer = renderer.clone();
     let on_resume = app_state.clone();
     let on_fullscreen = app_state.clone();
     let ui = html! {
@@ -42,7 +37,7 @@ impl PauseMenu {
                  button
                  class="resume-btn"
                  @click={ move |_| {
-                     on_resume.resume(&renderer.borrow())
+                     on_resume.resume()
                  } }
                  { "Resume" }
                  button

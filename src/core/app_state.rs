@@ -1,55 +1,51 @@
-//! Shared app state bridging the UI, browser events and the frame loop.
+//! UI-owned application state, applied to the renderer by the frame loop.
 
 use fluid::{Context, Signal};
 use gloo_utils::window;
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
+use web_sys::HtmlCanvasElement;
 
-use crate::core::{Keyboard, Renderer, Viewport};
+use crate::core::renderer::get_window_dimension;
 
-/// Reactive pause/fullscreen state plus shared input.
+/// Reactive UI state: pause, fullscreen and canvas size.
 ///
-/// Signals drive the [`PauseMenu`](crate::ui::PauseMenu) markup,
-/// and the frame loop skips simulation while [`paused`](AppState::paused).
-/// The [`Keyboard`] is reachable from both via [`AppState::keyboard`].
+/// The UI layer and browser listeners **write** here; nothing in the UI
+/// touches the renderer. The frame loop **reads** it every frame and applies
+/// changes: the [`Renderer`](crate::core::Renderer) and
+/// [`Viewport`](crate::core::Viewport) resize when [`size`](AppState::size)
+/// changes, and simulation stops while [`paused`](AppState::paused).
+/// Signals also drive the [`PauseMenu`](crate::ui::PauseMenu) markup via
+/// fluid effects.
 ///
 /// # Events handled
-/// - `pointerlockchange`: paused = pointer not locked (Esc pauses). Camera
-///   input is [locked](Viewport::lock) while paused.
+/// - `pointerlockchange`: paused = pointer not locked (Esc pauses).
 /// - `fullscreenchange`: syncs the fullscreen signal.
-/// - `resize`: resizes the renderer and viewport projection.
+/// - `resize`: records the new window size.
 pub struct AppState {
   /// Whether the document is fullscreen.
   fullscreen: Rc<Signal<bool>>,
   /// Whether the game is paused. Starts `true`.
   paused: Rc<Signal<bool>>,
-  /// Held-key state shared by the UI and scene objects.
-  keyboard: Keyboard,
+  /// Target canvas size in pixels (the window's inner size).
+  size: Rc<Signal<(u32, u32)>>,
+  /// Canvas to lock the pointer to on resume (a DOM element, not the renderer).
+  canvas: HtmlCanvasElement,
 }
+
 impl AppState {
-  /// Creates the signals in `context`, starts the [`Keyboard`] and registers
-  /// the window/document listeners.
-  pub fn new(
-    context: &Context,
-    renderer: Rc<RefCell<Renderer>>,
-    viewport: Rc<RefCell<Viewport>>,
-  ) -> Self {
+  /// Creates the signals in `context` and registers the window/document
+  /// listeners. `canvas` is the element pointer lock targets.
+  pub fn new(context: &Context, canvas: HtmlCanvasElement) -> Self {
     let window = window();
     let document = Rc::new(window.document().expect("should have a document"));
     let fullscreen = context.create_signal(document.fullscreen());
     let paused = context.create_signal(true);
+    let size = context.create_signal(get_window_dimension());
     {
       let paused = paused.clone();
-      let viewport = viewport.clone();
       let document = document.clone();
       fluid::add_event_and_forget(&document.clone(), "pointerlockchange", move |_| {
-        let locked = document.pointer_lock_element().is_some();
-        paused.set(!locked);
-        let mut viewport = viewport.borrow_mut();
-        if locked {
-          viewport.unlock();
-        } else {
-          viewport.lock();
-        }
+        paused.set(document.pointer_lock_element().is_none());
       });
     }
     {
@@ -60,22 +56,17 @@ impl AppState {
       });
     }
     {
-      let renderer = renderer.clone();
-      let viewport = viewport.clone();
+      let size = size.clone();
       fluid::add_event_and_forget(&window, "resize", move |_| {
-        renderer.borrow_mut().resize();
-        viewport.borrow_mut().resize(renderer.borrow().canvas());
+        size.set(get_window_dimension());
       });
     }
     Self {
       fullscreen,
       paused,
-      keyboard: Keyboard::new(),
+      size,
+      canvas,
     }
-  }
-  /// Held-key state.
-  pub fn keyboard(&self) -> &Keyboard {
-    &self.keyboard
   }
   /// Whether the document is fullscreen.
   pub fn fullscreen(&self) -> bool {
@@ -85,12 +76,18 @@ impl AppState {
   pub fn paused(&self) -> bool {
     *self.paused.get()
   }
-  /// Requests pointer lock on the canvas. Once granted, `pointerlockchange`
-  /// unpauses and unlocks the camera.
-  pub fn resume(&self, renderer: &Renderer) {
-    renderer.canvas().request_pointer_lock();
+  /// Target canvas size `(width, height)` in pixels.
+  pub fn size(&self) -> (u32, u32) {
+    *self.size.get()
   }
-  /// Enters or exits document fullscreen and updates the signal.
+  /// Requests pointer lock on the canvas. Must run inside a user gesture
+  /// (click handler); once granted, `pointerlockchange` unpauses.
+  pub fn resume(&self) {
+    self.canvas.request_pointer_lock();
+  }
+  /// Enters or exits document fullscreen and updates the signal. Must run
+  /// inside a user gesture. The resulting window `resize` updates
+  /// [`size`](AppState::size).
   pub fn toggle_fullscreen(&self) {
     let document = window().document().expect("should have a document");
     if self.fullscreen() {

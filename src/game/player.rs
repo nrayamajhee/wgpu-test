@@ -1,26 +1,28 @@
 //! Camera-relative control of a rigid body. See [`Player`].
 
-use std::cell::Cell;
-use std::rc::Rc;
-
-use fluid::add_event_and_forget;
-use gloo_utils::window as gloo_window;
 use nalgebra::{vector, UnitQuaternion, Vector3};
-use wasm_bindgen::JsCast;
-use web_sys::KeyboardEvent;
 
-use crate::core::{Scene, Viewport};
+use crate::core::{InputState, Scene, Viewport};
 
-/// Movement impulse level, toggled by holding Shift.
+/// Movement impulse level: Shift held = fast.
 #[derive(Clone, Copy, PartialEq)]
 pub enum MovementSpeed {
-  /// Impulse 10 per call.
+  /// Impulse 10 per frame.
   Normal,
-  /// Impulse 30 per call (Shift held).
+  /// Impulse 30 per frame (Shift held).
   Fast,
 }
 
 impl MovementSpeed {
+  /// Speed selected by `input` (Shift → fast).
+  fn from_input(input: &InputState) -> Self {
+    if input.shift() {
+      MovementSpeed::Fast
+    } else {
+      MovementSpeed::Normal
+    }
+  }
+
   /// Impulse magnitude for this speed.
   fn impulse(self) -> f32 {
     match self {
@@ -30,65 +32,35 @@ impl MovementSpeed {
   }
 }
 
-/// Drives the rigid body of scene node `node` relative to the camera.
+/// Drives the rigid body of scene node `node` from WASD relative to the camera.
 ///
-/// Holds no scene/viewport references; pass them per call from the frame loop.
-/// Methods return `None` if the node has no rigid body.
+/// Stateless apart from the node id: call [`Player::update`] every frame.
 pub struct Player {
   /// Id of the scene node whose body is controlled.
   node: String,
-  /// Current speed, updated by Shift listeners.
-  speed: Rc<Cell<MovementSpeed>>,
 }
 
 impl Player {
-  /// Controls node `node` and registers Shift listeners for [`MovementSpeed`].
+  /// Controls node `node`.
   pub fn new(node: impl Into<String>) -> Self {
-    let speed = Rc::new(Cell::new(MovementSpeed::Normal));
-    for (event, value) in [
-      ("keydown", MovementSpeed::Fast),
-      ("keyup", MovementSpeed::Normal),
-    ] {
-      let speed = speed.clone();
-      add_event_and_forget(&gloo_window(), event, move |e| {
-        if e.dyn_into::<KeyboardEvent>().is_ok_and(|e| e.key() == "Shift") {
-          speed.set(value);
-        }
-      });
-    }
-    Self {
-      node: node.into(),
-      speed,
-    }
+    Self { node: node.into() }
   }
 
-  /// Current movement speed.
-  pub fn speed(&self) -> MovementSpeed {
-    self.speed.get()
-  }
-
-  /// Rotates the body to face the camera's XZ direction.
-  pub fn face_viewport(&self, scene: &mut Scene, viewport: &Viewport) -> Option<()> {
-    let facing = viewport.facing_xz();
-    let forward = Vector3::new(facing.x, 0., facing.y);
-    let rotation = UnitQuaternion::face_towards(&-forward, &Vector3::y());
-    scene
-      .get_body_mut(&self.node)?
-      .set_rotation(rotation, true);
-    Some(())
-  }
-
-  /// Applies a horizontal impulse: `dy` along camera forward, `dx` along
-  /// camera right, scaled by [`MovementSpeed`].
-  pub fn move_(&self, scene: &mut Scene, viewport: &Viewport, dx: isize, dy: isize) -> Option<()> {
+  /// Faces the body along the camera and applies WASD movement.
+  /// Returns `None` if the node has no rigid body.
+  pub fn update(&self, scene: &mut Scene, viewport: &Viewport, input: &InputState) -> Option<()> {
+    let axis = |plus, minus| (input.is_held(plus) as i8 - input.is_held(minus) as i8) as f32;
+    let (dx, dy) = (axis("KeyD", "KeyA"), axis("KeyW", "KeyS"));
     let facing = viewport.facing_xz();
     let forward = Vector3::new(facing.x, 0., facing.y);
     let right = Vector3::new(-facing.y, 0., facing.x);
-    let magnitude = self.speed().impulse();
-    let impulse = forward * (dy as f32 * magnitude) + right * (dx as f32 * magnitude);
-    scene
-      .get_body_mut(&self.node)?
-      .apply_impulse(vector![impulse.x, 0., impulse.z], true);
+    let impulse = (forward * dy + right * dx) * MovementSpeed::from_input(input).impulse();
+
+    let body = scene.get_body_mut(&self.node)?;
+    body.set_rotation(UnitQuaternion::face_towards(&-forward, &Vector3::y()), true);
+    if dx != 0. || dy != 0. {
+      body.apply_impulse(vector![impulse.x, 0., impulse.z], true);
+    }
     Some(())
   }
 }

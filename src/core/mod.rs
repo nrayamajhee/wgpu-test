@@ -3,11 +3,10 @@
 //! Everything else in the crate builds on these types.
 
 pub mod app_state;
-pub mod camera_controls;
 pub mod geometry;
 pub mod gltf;
 pub mod group;
-pub mod keyboard;
+pub mod input;
 pub mod material;
 pub mod mesh;
 pub mod renderer;
@@ -18,7 +17,7 @@ pub mod viewport;
 pub use app_state::AppState;
 pub use geometry::Geometry;
 pub use group::Group;
-pub use keyboard::Keyboard;
+pub use input::{EventQueue, InputState};
 pub use material::{Material, MaterialType, TextureSource};
 pub use mesh::Mesh;
 pub use renderer::{Color, Rect, Renderer};

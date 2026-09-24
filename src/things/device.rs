@@ -3,7 +3,7 @@
 use nalgebra::{Similarity3, Translation3, UnitQuaternion};
 use wasm_bindgen::JsValue;
 
-use crate::core::{Color, Geometry, Group, Keyboard, Material, Mesh, Renderer, Scene};
+use crate::core::{Color, Geometry, Group, InputState, Material, Mesh, Renderer, Scene};
 use crate::lights::PointLight;
 
 /// One octave from C, left to right: `W` white / `B` black key, and its
@@ -192,13 +192,14 @@ impl Device {
     Ok(device)
   }
 
-  /// Colors each key [`ACTIVE`] with a faint glow while its hotkey is held
-  /// (with Shift for the upper octave), otherwise its resting color. Call
-  /// once per frame.
-  pub fn update(scene: &mut Scene, keyboard: &Keyboard) {
-    let octave = if keyboard.shift() { 1 } else { 0 };
+  /// Colors each key [`ACTIVE`] with a faint glow while its hotkey is
+  /// active (with Shift for the upper octave), otherwise its resting color.
+  /// Taps shorter than a frame still light the key for one frame. Call once
+  /// per frame.
+  pub fn update(scene: &mut Scene, input: &InputState) {
+    let octave = if input.shift() { 1 } else { 0 };
     for key in Self::keys() {
-      let active = key.octave == octave && keyboard.is_pressed(key.hotkey);
+      let active = key.octave == octave && input.is_active(key.hotkey);
       if let Some(mesh) = scene.get_mesh_mut(&key.node) {
         mesh.color = if active { ACTIVE } else { key.color() };
         mesh.emissive = if active { ACTIVE_GLOW } else { NO_GLOW };

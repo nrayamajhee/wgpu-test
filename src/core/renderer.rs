@@ -455,9 +455,14 @@ impl Renderer {
     );
   }
 
-  /// Resizes the canvas and depth texture to the current window size.
-  pub fn resize(&mut self) {
-    let (width, height) = get_window_dimension();
+  /// Resizes the canvas and depth texture to `(width, height)`, if different
+  /// from the current size. Call every frame with
+  /// [`AppState::size`](crate::core::AppState::size).
+  pub fn fit(&mut self, (width, height): (u32, u32)) {
+    let (width, height) = (width.max(1), height.max(1));
+    if (width, height) == (self.canvas.width(), self.canvas.height()) {
+      return;
+    }
     self.canvas.set_width(width);
     self.canvas.set_height(height);
     let (depth_texture, depth_attachment) = Self::create_depth_texture(&self.device, width, height);

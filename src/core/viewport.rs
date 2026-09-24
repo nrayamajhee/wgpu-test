@@ -4,11 +4,13 @@ use nalgebra::{Isometry3, Matrix4, Perspective3, Point3, Unit, UnitQuaternion, V
 use std::f32::consts::PI;
 use web_sys::HtmlCanvasElement;
 
+use crate::core::InputState;
+
 /// Perspective camera orbiting a target.
 ///
 /// The final view is `proj * view * target⁻¹`: `target` places the orbit
 /// center in the world and `view` is the eye's offset/orientation around it.
-/// Zoom and rotation input is ignored while [locked](Viewport::lock).
+/// Owned by the frame loop and driven by [`Viewport::update`].
 pub struct Viewport {
   /// Eye transform relative to the target; its translation length is the orbit distance.
   view: Isometry3<f32>,
@@ -20,10 +22,8 @@ pub struct Viewport {
   min_distance: f32,
   /// Farthest allowed orbit distance.
   max_distance: f32,
-  /// Whether wheel zoom is accepted.
-  zoom: bool,
-  /// Whether mouse rotation is accepted.
-  rotate: bool,
+  /// Size the projection was built for; see [`Viewport::fit`].
+  size: (u32, u32),
 }
 
 impl Viewport {
@@ -34,17 +34,17 @@ impl Viewport {
   /// Far clip plane distance (the skybox is drawn at infinity regardless).
   const FAR: f32 = 100000.;
 
-  /// Perspective projection for `canvas`'s aspect ratio.
-  fn projection(canvas: &HtmlCanvasElement) -> Perspective3<f32> {
-    let aspect = canvas.width() as f32 / canvas.height() as f32;
+  /// Perspective projection for a `(width, height)` viewport.
+  fn projection((width, height): (u32, u32)) -> Perspective3<f32> {
+    let aspect = width.max(1) as f32 / height.max(1) as f32;
     Perspective3::new(aspect, Self::FOV, Self::NEAR, Self::FAR)
   }
 
-  /// Camera 10 units from the origin looking at it, locked, with no
-  /// distance limits.
+  /// Camera 10 units from the origin looking at it, with no distance limits.
   pub fn new(canvas: &HtmlCanvasElement) -> Self {
     let target = Isometry3::identity();
-    let proj = Self::projection(canvas);
+    let size = (canvas.width(), canvas.height());
+    let proj = Self::projection(size);
     let eye = [0., 0., 10.].into();
     let view = Isometry3::look_at_rh(&eye, &target.translation.vector.into(), &Vector3::y());
     Self {
@@ -53,8 +53,7 @@ impl Viewport {
       proj,
       min_distance: 0.,
       max_distance: f32::INFINITY,
-      zoom: false,
-      rotate: false,
+      size,
     }
   }
 
@@ -78,9 +77,13 @@ impl Viewport {
     self.proj.to_homogeneous() * self.view.to_homogeneous() * self.target.inverse().to_homogeneous()
   }
 
-  /// Rebuilds the projection for the canvas's new aspect ratio.
-  pub fn resize(&mut self, canvas: &HtmlCanvasElement) {
-    self.proj = Self::projection(canvas);
+  /// Rebuilds the projection if `size` differs from the last one. Call every
+  /// frame with [`AppState::size`](crate::core::AppState::size).
+  pub fn fit(&mut self, size: (u32, u32)) {
+    if size != self.size {
+      self.size = size;
+      self.proj = Self::projection(size);
+    }
   }
 
   /// Caps how close the camera can zoom in to its target.
@@ -95,14 +98,28 @@ impl Viewport {
     self.clamp_distance();
   }
 
-  /// Zooms by 5% per wheel event: `ds > 0` zooms out, `ds < 0` zooms in.
-  /// Clamped to the min/max distance.
-  pub fn update_zoom(&mut self, ds: i32) {
-    if self.zoom && ds != 0 {
-      let delta = if ds > 0 { 1.05 } else { 0.95 };
-      self.view.translation.vector = delta * self.view.translation.vector;
-      self.clamp_distance();
+  /// Applies this frame's mouse input: movement orbits, wheel zooms.
+  /// Ignored while `paused`.
+  pub fn update(&mut self, input: &InputState, paused: bool) {
+    if paused {
+      return;
     }
+    let (dx, dy) = input.mouse_delta();
+    if dx != 0 || dy != 0 {
+      self.orbit(dx, dy);
+    }
+    let wheel = input.wheel();
+    if wheel != 0. {
+      self.zoom(wheel);
+    }
+  }
+
+  /// Zooms 5% per frame with scroll: `wheel > 0` out, `< 0` in. Clamped to
+  /// the min/max distance.
+  fn zoom(&mut self, wheel: f32) {
+    let factor = if wheel > 0. { 1.05 } else { 0.95 };
+    self.view.translation.vector *= factor;
+    self.clamp_distance();
   }
 
   /// Rescales the eye offset into `min_distance..=max_distance`.
@@ -119,32 +136,15 @@ impl Viewport {
   }
 
   /// Orbits by mouse movement in pixels: `dy` pitches about the camera's
-  /// X axis, `dx` yaws about the target's Y axis. `_dt` is unused.
-  pub fn update_rot(&mut self, dx: i32, dy: i32, _dt: f32) {
-    if self.rotate {
-      let pitch = dy as f32 * 0.002;
-      let yaw = dx as f32 * 0.002;
-      let delta_rot = {
-        let axis = Unit::new_normalize(self.view.rotation.conjugate() * Vector3::x());
-        let q_ver = UnitQuaternion::from_axis_angle(&axis, pitch);
-        let axis = Unit::new_normalize(self.target.rotation.conjugate() * Vector3::y());
-        let q_hor = UnitQuaternion::from_axis_angle(&axis, yaw);
-        q_ver * q_hor
-      };
-      self.view.rotation *= &delta_rot;
-    }
-  }
-
-  /// Enables zoom and rotation input.
-  pub fn unlock(&mut self) {
-    self.zoom = true;
-    self.rotate = true;
-  }
-
-  /// Disables zoom and rotation input.
-  pub fn lock(&mut self) {
-    self.zoom = false;
-    self.rotate = false;
+  /// X axis, `dx` yaws about the target's Y axis.
+  fn orbit(&mut self, dx: i32, dy: i32) {
+    let pitch = dy as f32 * 0.002;
+    let yaw = dx as f32 * 0.002;
+    let axis = Unit::new_normalize(self.view.rotation.conjugate() * Vector3::x());
+    let q_ver = UnitQuaternion::from_axis_angle(&axis, pitch);
+    let axis = Unit::new_normalize(self.target.rotation.conjugate() * Vector3::y());
+    let q_hor = UnitQuaternion::from_axis_angle(&axis, yaw);
+    self.view.rotation *= q_ver * q_hor;
   }
 
   /// Camera forward direction projected onto the XZ plane, normalized.
