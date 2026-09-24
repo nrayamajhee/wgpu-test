@@ -10,7 +10,8 @@ pub struct Backdrop;
 
 impl Backdrop {
   /// Returns a `"skybox"` group: a large icosphere with a cube map from
-  /// `img/milkyway/`. Rendered with camera rotation only, so it appears infinitely far.
+  /// `img/milkyway/`. Drawn at infinite depth with camera rotation only, and
+  /// used as the environment reflected by PBR surfaces.
   ///
   /// # Errors
   /// If any face image fails to load.

@@ -1,12 +1,13 @@
 //! Scene graph and physics world.
 //!
 //! Nodes are keyed by unique string ids. Each node may have a local
-//! transform, a [`Mesh`], a rigid body and a collider. Content is added via
+//! transform, a [`Mesh`], a [`Light`], a rigid body and a collider. Content is added via
 //! [`Group`]s; see [`Scene::add_group`].
 
 use std::collections::HashMap;
 
 use crate::core::{Group, Mesh};
+use crate::lights::Light;
 use nalgebra::{vector, Similarity3};
 use rapier3d::{
   dynamics::RigidBodyHandle,
@@ -38,6 +39,8 @@ pub struct Scene {
   transforms: HashMap<String, Similarity3<f32>>,
   /// Renderable meshes, drawn at the node's world transform.
   meshes: HashMap<String, Mesh>,
+  /// Light sources, placed by the node's world transform.
+  lights: HashMap<String, Light>,
   /// Rigid body of each physics-driven node.
   r_handles: HashMap<String, RigidBodyHandle>,
   /// Collider of each node that has one.
@@ -77,6 +80,7 @@ impl Scene {
       nodes: HashMap::new(),
       transforms: HashMap::new(),
       meshes: HashMap::new(),
+      lights: HashMap::new(),
       r_handles: HashMap::new(),
       c_handles: HashMap::new(),
       rigid_body_set: RigidBodySet::new(),
@@ -114,8 +118,8 @@ impl Scene {
     self.insert_group(group, Some(parent), parent_world)
   }
 
-  /// Recursively inserts `group` under `parent`, registering its mesh, body
-  /// and collider. `parent_world` is the parent's world transform, used to
+  /// Recursively inserts `group` under `parent`, registering its mesh,
+  /// light, body and collider. `parent_world` is the parent's world transform, used to
   /// convert world-space bodies/colliders to and from local space.
   fn insert_group(
     &mut self,
@@ -129,6 +133,7 @@ impl Scene {
       mesh,
       body,
       collider,
+      light,
       children,
     } = group;
 
@@ -176,6 +181,9 @@ impl Scene {
     if let Some(mesh) = mesh {
       self.meshes.insert(name.clone(), mesh);
     }
+    if let Some(light) = light {
+      self.lights.insert(name.clone(), light);
+    }
     if let Some(handle) = r_handle {
       self.r_handles.insert(name.clone(), handle);
     }
@@ -191,40 +199,47 @@ impl Scene {
 
   /// All meshes paired with their world transforms, for rendering.
   pub fn meshes(&self) -> Vec<(&Mesh, Similarity3<f32>)> {
-    let mut result = Vec::new();
-    let roots: Vec<&str> = self
+    Self::collect(&self.meshes, self.world_transforms())
+  }
+
+  /// All lights paired with their world transforms, for rendering.
+  pub fn lights(&self) -> Vec<(&Light, Similarity3<f32>)> {
+    Self::collect(&self.lights, self.world_transforms())
+  }
+
+  /// Pairs each entry of `table` with its node's world transform.
+  fn collect<'a, T>(
+    table: &'a HashMap<String, T>,
+    world: HashMap<&str, Similarity3<f32>>,
+  ) -> Vec<(&'a T, Similarity3<f32>)> {
+    table
+      .iter()
+      .filter_map(|(id, item)| Some((item, *world.get(id.as_str())?)))
+      .collect()
+  }
+
+  /// World transform of every node, computed in one top-down pass.
+  fn world_transforms(&self) -> HashMap<&str, Similarity3<f32>> {
+    let mut out = HashMap::with_capacity(self.nodes.len());
+    let mut stack: Vec<(&str, Similarity3<f32>)> = self
       .nodes
       .values()
       .filter(|n| n.parent.is_none())
-      .map(|n| n.id.as_str())
+      .map(|n| (n.id.as_str(), Similarity3::identity()))
       .collect();
-    for root in roots {
-      self.collect_meshes(root, &Similarity3::identity(), &mut result);
-    }
-    result
-  }
-
-  /// Depth-first walk from `id`, accumulating world transforms into `out`.
-  fn collect_meshes<'a>(
-    &'a self,
-    id: &str,
-    parent_world: &Similarity3<f32>,
-    out: &mut Vec<(&'a Mesh, Similarity3<f32>)>,
-  ) {
-    let local = self
-      .transforms
-      .get(id)
-      .copied()
-      .unwrap_or_else(Similarity3::identity);
-    let world = *parent_world * local;
-    if let Some(mesh) = self.meshes.get(id) {
-      out.push((mesh, world));
-    }
-    if let Some(node) = self.nodes.get(id) {
-      for child in &node.children {
-        self.collect_meshes(child, &world, out);
+    while let Some((id, parent_world)) = stack.pop() {
+      let local = self
+        .transforms
+        .get(id)
+        .copied()
+        .unwrap_or_else(Similarity3::identity);
+      let world = parent_world * local;
+      out.insert(id, world);
+      if let Some(node) = self.nodes.get(id) {
+        stack.extend(node.children.iter().map(|c| (c.as_str(), world)));
       }
     }
+    out
   }
 
   /// Number of ancestors of `id` (roots are 0).

@@ -5,12 +5,14 @@
 //! ## Modules
 //!
 //! - [`core`] — engine:
-//!   - [`Renderer`] owns the WebGPU device, pipelines and canvas, and draws a [`Scene`].
-//!   - [`Scene`] is a node tree of transforms, meshes and Rapier physics objects.
+//!   - [`Renderer`] owns the WebGPU device, PBR and skybox pipelines and canvas,
+//!     and draws a [`Scene`] (see `docs/shaders.md`).
+//!   - [`Scene`] is a node tree of transforms, meshes, lights and Rapier physics objects.
 //!   - [`Group`](core::Group) is detached scene content, inserted with [`Scene::add_group`].
 //!   - [`Viewport`] is an orbit camera, driven by [`core::camera_controls::register_mouse_bindings`].
 //!   - [`AppState`] holds reactive pause/fullscreen state shared by the UI and frame loop.
 //!   - [`Keyboard`](core::Keyboard) tracks held keys; shared via [`AppState::keyboard`].
+//! - [`lights`] — sun, point and ambient lights, attached to scene nodes.
 //! - [`things`] — scene content builders ([`World`], [`Device`], a playable piano).
 //! - [`game`] — player and car (not wired in yet).
 //! - [`ui`] — DOM overlays ([`PauseMenu`]).
@@ -32,6 +34,7 @@
 mod core;
 #[allow(dead_code)]
 mod game;
+mod lights;
 mod things;
 mod ui;
 mod utils;

@@ -2,58 +2,64 @@
 
 Overview of the render pipelines. Details live in:
 
-- [pbr-shader.md](pbr-shader.md): planned default shader (glTF PBR).
-- [cubemap-shader.md](cubemap-shader.md): skybox shader.
+- [pbr-shader.md](pbr-shader.md): the default lit shader (glTF PBR).
+- [cubemap-shader.md](cubemap-shader.md): the skybox shader.
 
 ## Pipelines
 
-All pipelines share one render pass, a `Depth24plusStencil8` depth buffer
-and the canvas' preferred format. `Renderer::render` picks a pipeline per
-mesh from its `MaterialType`.
-
-| Pipeline | File | Used for | Culling | Status |
+| Pipeline | File | Used for | Culling | Depth |
 |---|---|---|---|---|
-| Default | `src/core/shader.wgsl` | every mesh except the skybox | back faces | to be replaced by PBR |
-| Cube map | `src/core/shader_cube.wgsl` | skybox | front faces | kept |
+| PBR | `src/core/pbr.wgsl` | every mesh except the skybox | back faces | `Less`, writes |
+| Cube map | `src/core/shader_cube.wgsl` | skybox | front faces | `LessEqual`, no writes, drawn at depth 1 |
+| Mipmap | `src/core/mipmap.wgsl` | internal: generates texture mip levels | none | none |
 
-## Default shader (current)
+`Renderer::render` picks the pipeline per mesh from its `MaterialType`
+(`Pbr` or `CubeMap`). Both drawing pipelines share one render pass and a
+`Depth24plusStencil8` depth buffer.
 
-**Unlit**: there are no normals and no lights. It branches on `MaterialType`:
+## Color pipeline
 
-| `MaterialType` | Output | Used by |
+- **Inputs:** color textures (base color, emissive, skybox) are
+  `rgba8unorm-srgb`, so sampling returns linear values. Data textures
+  (normal, metallic-roughness, occlusion) are `rgba8unorm`. All `Color`
+  values in Rust are linear.
+- **Lighting:** the PBR shader computes linear HDR radiance, then tone maps
+  it with ACES.
+- **Output:** the canvas is rendered through an `-srgb` view format, so the
+  GPU gamma-encodes on write. Shaders never apply gamma themselves.
+
+## Textures
+
+- **Cache:** `Renderer::texture` caches uploads by source and color space.
+  Materials that share a URL or an embedded image (`Rc<[u8]>`) share one GPU
+  texture.
+- **Mipmaps:** every sampled texture gets a full mip chain, generated on the
+  GPU by the mipmap pipeline. The shared sampler is trilinear with 8×
+  anisotropy.
+- **Defaults:** a missing map binds a cached 1×1 texture: white, or flat
+  (128, 128, 255) for normal maps.
+
+## Lights
+
+Lights live on scene nodes (`Group::with_light`) and are gathered every
+frame into one uniform block (see `src/lights`):
+
+| Light | Placement | Limit |
 |---|---|---|
-| `Color` (0) | `uniforms.color` | Device piano keys, glTF without textures |
-| `VertexColor` (1) | per-vertex RGB | World ocean |
-| `Textured` (2) | texel blended over `color` by texel alpha | glTF base color texture |
+| `Ambient` | none; all ambients are summed | unlimited |
+| `Sun` | direction rotated by the node | 4 |
+| `PointLight` | node's world position; glTF range falloff | 8 |
 
-- **Vertex inputs:** position (slot 0), vertex color (slot 1), UV (slot 2).
-  Unused slots are bound to empty buffers.
-- **Group 0:** a 96-byte uniform holding the MVP matrix, color and material
-  type.
-- **Group 1:** a sampler and one 2D texture (a 1×1 placeholder when untextured).
+Lights beyond the limits are ignored.
 
-### Limitations
+## Current scene
 
-- **No lighting:** shapes read as flat silhouettes. Adjacent piano keys merge
-  into one colour, for example.
-- **Wrong texture blend:** glTF says base color = factor × texture, but the
-  shader blends by alpha instead.
-- **Colour space:** textures are `rgba8unorm` and output isn't gamma-encoded,
-  so any lighting math would be done in the wrong colour space.
-- **Empty vertex buffers:** reading from them is out of bounds. WebGPU returns
-  zeros, which happens to work but is fragile.
-- **Duplicate uploads:** every glTF primitive uploads its own copy of the
-  texture, even when primitives share an image.
+| Mesh | Material |
+|---|---|
+| Skybox (`Backdrop`) | cube map; also the environment every PBR surface reflects |
+| Ocean (`World`) | vertex-color albedo, roughness 0.25 |
+| Piano keys (`Device`) | ivory / black lacquer dielectric, roughness 0.2; pressed keys turn orange and glow |
+| Case (`Device`) | gray metal, roughness 0.35 |
 
-## Cube map shader (current)
-
-Draws the skybox by sampling a cube texture in the direction of each pixel,
-using camera rotation only so the sky never moves with the camera. See
-[cubemap-shader.md](cubemap-shader.md).
-
-## Target
-
-| Pipeline | Shader | Used for |
-|---|---|---|
-| **PBR** (new default) | glTF metallic-roughness, lit | every mesh except the skybox; `Color`, `VertexColor` and `Textured` become PBR presets |
-| Cube map | unchanged | skybox, and later the environment source for PBR image-based lighting |
+Lit by a warm sun and a faint blue ambient (`World`), plus a point lamp in
+front of the piano (`Device`).

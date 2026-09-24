@@ -4,6 +4,7 @@ use nalgebra::Similarity3;
 use rapier3d::prelude::{Collider, RigidBody};
 
 use crate::core::Mesh;
+use crate::lights::Light;
 
 /// A named tree of scene content, built up front and inserted with
 /// [`Scene::add_group`](crate::core::Scene::add_group) or
@@ -14,6 +15,7 @@ use crate::core::Mesh;
 /// - static mesh
 /// - rigid body, with or without a mesh and/or collider
 /// - static collider without a body
+/// - light source (see [`lights`](crate::lights))
 /// - any nesting of the above via children
 ///
 /// # Transforms
@@ -43,6 +45,8 @@ pub struct Group {
   pub body: Option<RigidBody>,
   /// Collider, attached to `body` if present, otherwise static.
   pub collider: Option<Collider>,
+  /// Light emitted from this node.
+  pub light: Option<Light>,
   /// Nested groups.
   pub children: Vec<Group>,
 }
@@ -56,6 +60,7 @@ impl Group {
       mesh: None,
       body: None,
       collider: None,
+      light: None,
       children: Vec::new(),
     }
   }
@@ -92,6 +97,12 @@ impl Group {
   /// Attaches a collider (to the body if one is set).
   pub fn with_collider(mut self, collider: Collider) -> Self {
     self.collider = Some(collider);
+    self
+  }
+
+  /// Attaches a light ([`Sun`](crate::lights::Sun), [`PointLight`](crate::lights::PointLight), ...).
+  pub fn with_light(mut self, light: impl Into<Light>) -> Self {
+    self.light = Some(light.into());
     self
   }
 

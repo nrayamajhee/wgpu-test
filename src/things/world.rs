@@ -1,4 +1,4 @@
-//! The environment: planet and skybox. See [`World`].
+//! The environment: planet, skybox and global lighting. See [`World`].
 
 use genmesh::generators::IcoSphere;
 use nalgebra::{vector, Point3};
@@ -7,10 +7,11 @@ use rapier3d::{dynamics::RigidBodyBuilder, geometry::ColliderBuilder};
 use wasm_bindgen::JsValue;
 
 use super::Backdrop;
-use crate::core::{Geometry, Group, Material, Mesh, Renderer};
+use crate::core::{Color, Geometry, Group, Material, Mesh, Renderer};
+use crate::lights::{Ambient, Sun};
 
-/// Builder for the environment: a noise-displaced, ocean-colored planet
-/// inside a skybox.
+/// Builder for the environment: a noise-displaced ocean planet inside a
+/// skybox, lit by a sun and ambient light.
 pub struct World;
 
 impl World {
@@ -18,7 +19,9 @@ impl World {
   pub const RADIUS: f32 = 1000.;
 
   /// Returns a `"world"` group containing:
-  /// - `"skybox"`: see [`Backdrop`].
+  /// - `"skybox"`: see [`Backdrop`]. Also the environment PBR surfaces reflect.
+  /// - `"sun"`: a warm [`Sun`] from above-front.
+  /// - `"ambient"`: a faint bluish [`Ambient`] fill.
   /// - `"lithosphere"`: a fixed body centred `RADIUS + 10` below the origin,
   ///   with a displaced sphere mesh and a convex-hull collider.
   ///
@@ -41,9 +44,9 @@ impl World {
       const FREQUENCY: f64 = 8.;
       // Displacement height relative to the sphere radius.
       const AMPLITUDE: f64 = 0.02;
-      // Ocean colors, from troughs to crests.
-      const DEEP: [f32; 3] = [0.0, 0.05, 0.25];
-      const SHALLOW: [f32; 3] = [0.1, 0.45, 0.75];
+      // Ocean albedo (linear), from troughs to crests.
+      const DEEP: [f32; 3] = [0.0, 0.01, 0.05];
+      const SHALLOW: [f32; 3] = [0.01, 0.17, 0.5];
 
       let mut geo = Geometry::from_genmesh(&IcoSphere::subdivide(SUBDIVISIONS));
       let noise = Fbm::<Perlin>::new(0);
@@ -59,6 +62,8 @@ impl World {
         v[1] *= d as f32;
         v[2] *= d as f32;
       }
+      // Displacement bends the surface, so re-derive normals for lighting.
+      geo.compute_normals();
       let mesh = Mesh::new(
         renderer,
         &geo,
@@ -78,7 +83,9 @@ impl World {
               ]
             })
             .collect(),
-        ),
+        )
+        // Water: glossy dielectric, reflects the sky at grazing angles.
+        .with_roughness(0.25),
       )
       .await?;
       let vertices = geo
@@ -100,9 +107,17 @@ impl World {
         .with_collider(lithocollider)
         .with_scale(Self::RADIUS)
     };
+    let sun = Group::new("sun").with_light(Sun::new(
+      vector![-0.4, -1., -0.6],
+      Color::rgb(1., 0.95, 0.85),
+      3.,
+    ));
+    let ambient = Group::new("ambient").with_light(Ambient::new(Color::rgb(0.6, 0.7, 1.), 0.05));
     Ok(
       Group::new("world")
         .with_child(Backdrop::new(renderer).await?)
+        .with_child(sun)
+        .with_child(ambient)
         .with_child(lithosphere),
     )
   }

@@ -1,6 +1,6 @@
 //! Orbit camera. See [`Viewport`].
 
-use nalgebra::{Isometry3, Matrix4, Perspective3, Unit, UnitQuaternion, Vector2, Vector3};
+use nalgebra::{Isometry3, Matrix4, Perspective3, Point3, Unit, UnitQuaternion, Vector2, Vector3};
 use std::f32::consts::PI;
 use web_sys::HtmlCanvasElement;
 
@@ -31,7 +31,7 @@ impl Viewport {
   const FOV: f32 = PI * 0.4;
   /// Near clip plane distance.
   const NEAR: f32 = 0.1;
-  /// Far clip plane distance; must exceed the skybox radius.
+  /// Far clip plane distance (the skybox is drawn at infinity regardless).
   const FAR: f32 = 100000.;
 
   /// Perspective projection for `canvas`'s aspect ratio.
@@ -66,6 +66,11 @@ impl Viewport {
   /// Projection × camera rotation only, for the skybox (no translation).
   pub fn view_cube(&self) -> Matrix4<f32> {
     self.proj.to_homogeneous() * self.view.rotation.to_homogeneous()
+  }
+
+  /// Camera position in world space (for view-dependent shading).
+  pub fn eye_position(&self) -> Point3<f32> {
+    (self.target * self.view.inverse()).translation.vector.into()
   }
 
   /// Full world → clip-space matrix.
