@@ -19,12 +19,14 @@ jobs:
           target: wasm32-unknown-unknown
       - uses: jetli/trunk-action@v0.1.0
       - uses: jetli/wasm-bindgen-action@v0.1.0
+      # Runs scripts/build-docs.nu (Trunk post_build hook).
+      - uses: hustcer/setup-nu@v3
+        with:
+          version: "0.114.1"
       - uses: actions/checkout@v2
-      - name: Build
-        run: |
-          echo "[build]" >> Trunk.toml
-          echo 'public_url = "/wgpu-test/"' >> Trunk.toml
-          trunk build --release
+      - name: Build app and docs
+        # Trunk.toml's post_build hook writes rustdoc to dist/docs.
+        run: trunk build --release --public-url /wgpu-test/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist

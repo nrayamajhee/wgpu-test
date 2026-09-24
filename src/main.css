@@ -62,8 +62,11 @@ canvas {
   user-select: none;
 }
 
-button {
+button,
+.button {
   user-select: none;
+  text-align: center;
+  text-decoration: none;
   border: none;
   color: white;
   font:
@@ -79,16 +82,20 @@ button {
 }
 
 button:hover,
-button:focus {
+button:focus,
+.button:hover,
+.button:focus {
   background: rgba(255, 255, 255, 0.25);
 }
 
-button:focus {
+button:focus,
+.button:focus {
   border-color: rgba(255, 255, 255, 0.2);
   outline: none;
 }
 
-button:active {
+button:active,
+.button:active {
   transform: translateY(2px);
 }
 

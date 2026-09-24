@@ -1,0 +1,5 @@
+# Build rustdoc into dist/docs so it is served at <public_url>/docs/.
+[[hooks]]
+stage = "post_build"
+command = "nu"
+command_arguments = ["scripts/build-docs.nu"]

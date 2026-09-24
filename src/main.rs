@@ -1,45 +1,54 @@
-mod backdrop;
+//! # wgpu-test
+//!
+//! A WebGPU + Rapier 3D sandbox compiled to WebAssembly.
+//!
+//! ## Modules
+//!
+//! - [`core`] — engine:
+//!   - [`Renderer`] owns the WebGPU device, pipelines and canvas, and draws a [`Scene`].
+//!   - [`Scene`] is a node tree of transforms, meshes and Rapier physics objects.
+//!   - [`Group`](core::Group) is detached scene content, inserted with [`Scene::add_group`].
+//!   - [`Viewport`] is an orbit camera, driven by [`core::camera_controls::register_mouse_bindings`].
+//!   - [`AppState`] holds reactive pause/fullscreen state shared by the UI and frame loop.
+//!   - [`Keyboard`](core::Keyboard) tracks held keys; shared via [`AppState::keyboard`].
+//! - [`things`] — scene content builders ([`World`], [`Device`], a playable piano).
+//! - [`game`] — player and car (not wired in yet).
+//! - [`ui`] — DOM overlays ([`PauseMenu`]).
+//! - [`utils`] — small helpers.
+//!
+//! ## Startup
+//!
+//! [`async_main`] fully configures the renderer, viewport and scene first, then
+//! wraps the shared parts in `Rc<RefCell<_>>` for the UI and frame loop.
+//!
+//! ## Frame loop
+//!
+//! See [`run_loop`]. While not paused: step physics → sync body transforms →
+//! update the [`Device`] from held keys → follow it with the camera. Always render.
+
+// Content constructors like `World::new` intentionally return a `Group`.
+#![allow(clippy::new_ret_no_self)]
+
+mod core;
+#[allow(dead_code)]
 mod game;
-mod mesh;
-mod movement;
-mod player;
-mod renderer;
-mod scene;
-mod viewport;
-mod world;
+mod things;
+mod ui;
+mod utils;
 
-use backdrop::Backdrop;
-pub use game::Game;
-pub use mesh::{Geometry, Material, Mesh};
-use movement::Movement;
-use player::Player;
-use renderer::Color;
-pub use renderer::Renderer;
-pub use scene::{NodeBundle, Scene, SceneNode};
-pub use viewport::Viewport;
-use world::World;
-
-use nalgebra::{Similarity3, Translation3, UnitQuaternion};
+use crate::core::{camera_controls, AppState, Renderer, Scene, Viewport};
+use things::{Device, World};
+use ui::PauseMenu;
 
 use fluid::{on_animation_frame, Context};
-use fluid_macro::html;
 use gloo_console::log;
 use gloo_utils::body;
-use js_sys::Array;
 use wasm_bindgen::prelude::*;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use rapier3d::prelude::*;
-
-pub fn iter_to_array<T>(iterable: impl IntoIterator<Item = T>) -> Array
-where
-  T: Into<JsValue>,
-{
-  iterable.into_iter().map(|v| v.into()).collect::<Array>()
-}
-
+/// Wasm entry point: spawns [`async_main`] on the browser event loop and logs any error.
 fn main() {
   wasm_bindgen_futures::spawn_local(async move {
     async_main().await.unwrap_or_else(|err| {
@@ -48,109 +57,62 @@ fn main() {
   })
 }
 
+/// Builds and configures everything, mounts the canvas and UI, then starts
+/// [`run_loop`].
+///
+/// # Errors
+/// Fails if WebGPU is unavailable, an asset fails to load, or DOM insertion fails.
 async fn async_main() -> Result<(), JsValue> {
+  // Configure
   let renderer = Renderer::new().await?;
-  let viewport = Viewport::new(renderer.canvas());
-  let ctx = Context::new();
-  let viewport = Rc::new(RefCell::new(viewport));
-  let scene = Rc::new(RefCell::new(Scene::new()));
 
-  body().append_child(renderer.canvas())?;
+  let mut viewport = Viewport::new(renderer.canvas());
+  viewport.set_min_distance(1.);
+  viewport.set_max_distance(World::RADIUS);
 
-  Backdrop::new(&renderer, &mut scene.borrow_mut()).await?;
+  let mut scene = Scene::new();
+  scene.add_group(World::new(&renderer).await?)?;
+  scene.add_group(Device::new(&renderer).await?)?;
 
-  {
-    let car_body = RigidBodyBuilder::dynamic()
-      .sleeping(false)
-      .translation(vector![0., 0., 0.])
-      .additional_mass(1.)
-      .linear_damping(10.)
-      .build();
-    let car_collider = ColliderBuilder::ball(1.).build();
-    scene
-      .borrow_mut()
-      .add_w_scale_collider("car", None, car_body, car_collider, 1.);
-    let car_node = Player::node(&renderer).await?;
-    scene.borrow_mut().insert_bundle(car_node);
-  }
-
-  let player = Player::new(&renderer, scene.clone(), viewport.clone()).await?;
-
-  {
-    let geo = Geometry::plane(10.);
-    let mesh = Mesh::new(&renderer, &geo, &Material::new(Color::rgb(0.1, 0.1, 0.1))).await?;
-    let transform = Similarity3::from_parts(
-      Translation3::new(0., -1., 0.),
-      UnitQuaternion::identity(),
-      1.,
-    );
-    scene.borrow_mut().add_static("plane", mesh, transform);
-  }
-
-  World::new(&renderer, &mut scene.borrow_mut()).await?;
-
+  // Share
   let renderer = Rc::new(RefCell::new(renderer));
-  let game = Rc::new(Game::new(&ctx, renderer.clone(), viewport.clone()));
-  let game = Rc::new(game);
-  {
-    let renderer = renderer.clone();
-    let viewport = viewport.clone();
-    let w1 = game.clone();
-    let w2 = game.clone();
-    let ui = html! {
-        div class=#{ |game| &format!("overlay {}", if game.paused() { "shown" } else { "" }) } {
-            div class="pause-menu" {
-             h1 { "Pause Menu" }
-             div class="buttons" {
-                 button
-                 class="resume-btn"
-                 @click={ move |_| {
-                     w1.resume(renderer.clone(), &mut viewport.borrow_mut())
-                 } }
-                 { "Resume" }
-                 button
-                 @click={ move |_| {
-                     w2.toggle_fullscreen();
-                 } }
-                 {
-                     #{ |game|
-                         if game.fullscreen() {
-                             "Exit fullscreen"
-                         } else {
-                             "Go fullscreeen"
-                         }
-                     }
-                 }
-             }
-            }
-        }
-    };
-    body().append_child(&ui)?;
-  }
+  let viewport = Rc::new(RefCell::new(viewport));
 
-  let movement = Movement::new();
-  movement.register_key_bindings();
-  movement.register_mouse_bindings(viewport.clone());
+  // Mount UI
+  let ctx = Context::new();
+  let app_state = Rc::new(AppState::new(&ctx, renderer.clone(), viewport.clone()));
+  let pause_menu = PauseMenu::new(&ctx, &app_state, &renderer)?;
+  body().append_child(renderer.borrow().canvas())?;
+  body().append_child(&pause_menu)?;
+  camera_controls::register_mouse_bindings(viewport.clone());
 
+  // Run
+  run_loop(scene, renderer, viewport, app_state);
+  Ok(())
+}
+
+/// Starts the per-frame loop, which takes ownership of the `scene`.
+///
+/// While not paused: steps physics, syncs body transforms, updates the
+/// [`Device`] from held keys and points the camera at it. Renders every frame.
+fn run_loop(
+  mut scene: Scene,
+  renderer: Rc<RefCell<Renderer>>,
+  viewport: Rc<RefCell<Viewport>>,
+  app_state: Rc<AppState>,
+) {
   on_animation_frame(
     move |_| {
-      if !game.paused() {
-        scene.borrow_mut().physics();
-        scene.borrow_mut().sync_transforms();
-        let dx = movement.dx();
-        let dy = movement.dy();
-        player.face_viewport();
-        if dx != 0 || dy != 0 {
-          player.move_(dx, dy);
+      if !app_state.paused() {
+        scene.physics();
+        scene.sync_transforms();
+        Device::update(&mut scene, app_state.keyboard());
+        if let Some(target) = scene.world_transform(Device::NODE) {
+          viewport.borrow_mut().follow(target.isometry);
         }
-        let pos = *scene.borrow().get_body("car").unwrap().position();
-        viewport.borrow_mut().follow(pos);
       }
-      renderer
-        .borrow_mut()
-        .render(&scene.borrow(), &viewport.borrow());
+      renderer.borrow_mut().render(&scene, &viewport.borrow());
     },
     None,
   );
-  Ok(())
 }

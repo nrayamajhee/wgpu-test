@@ -1,6 +1,11 @@
-use crate::renderer::Rect;
-use crate::Color;
-use crate::{iter_to_array, renderer::Renderer};
+//! CPU-side geometry/materials and their GPU-uploaded [`Mesh`] form.
+//!
+//! Flow: build a [`Geometry`] + [`Material`] → [`Mesh::new`] uploads them →
+//! add the mesh to a [`Group`](crate::core::Group).
+
+use crate::core::Rect;
+use crate::core::Color;
+use crate::{core::Renderer, utils::iter_to_array};
 use genmesh::{
   generators::{IndexedPolygon, SharedVertex},
   EmitTriangles, Triangulate, Vertex,
@@ -15,24 +20,38 @@ use web_sys::{
   GpuTextureViewDescriptor, GpuTextureViewDimension,
 };
 
+/// Shading mode. The discriminant is sent to `shader.wgsl` as a uniform.
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum MaterialType {
+  /// Single flat color.
   Color = 0,
+  /// Per-vertex colors.
   VertexColor = 1,
+  /// 2D texture sampled with UVs, tinted by `color`.
   Textured = 2,
+  /// Six-face cube texture; rendered with the skybox pipeline.
   CubeMap = 3,
 }
 
+/// Surface description consumed by [`Mesh::new`].
+/// Only the fields relevant to `material_type` are used.
 pub struct Material {
+  /// Shading mode.
   pub material_type: MaterialType,
+  /// One RGB per vertex ([`MaterialType::VertexColor`]).
   pub vertex_colors: Vec<[f32; 3]>,
+  /// One UV per vertex ([`MaterialType::Textured`]).
   pub texture_coordinates: Vec<[f32; 2]>,
+  /// Image URLs to fetch (1 for textured, 6 for cube map: +x −x +y −y +z −z).
   pub texture_src: Vec<String>,
+  /// Encoded image bytes (e.g. PNG/JPEG embedded in a glTF).
   pub texture_bytes: Vec<Vec<u8>>,
+  /// Base color, or tint for textures.
   pub color: Color,
 }
 
 impl Material {
+  /// Flat color material.
   pub fn new(color: Color) -> Self {
     Self {
       material_type: MaterialType::Color,
@@ -43,6 +62,7 @@ impl Material {
       color,
     }
   }
+  /// Per-vertex color material; `colors` must match the geometry's vertex count.
   pub fn vertex_color(colors: Vec<[f32; 3]>) -> Self {
     Self {
       material_type: MaterialType::VertexColor,
@@ -58,6 +78,7 @@ impl Material {
       },
     }
   }
+  /// Texture fetched from URL `src`, mapped with per-vertex UVs.
   pub fn textured(src: &str, coordinates: Vec<[f32; 2]>) -> Self {
     Self {
       material_type: MaterialType::Textured,
@@ -73,6 +94,7 @@ impl Material {
       },
     }
   }
+  /// Texture decoded from encoded image `bytes`, tinted by `color`.
   pub fn textured_bytes(bytes: Vec<u8>, coordinates: Vec<[f32; 2]>, color: Color) -> Self {
     Self {
       material_type: MaterialType::Textured,
@@ -83,6 +105,7 @@ impl Material {
       color,
     }
   }
+  /// Cube map from six face URLs, ordered +x −x +y −y +z −z.
   pub fn cubemap(src_set: [&str; 6]) -> Self {
     Self {
       material_type: MaterialType::CubeMap,
@@ -100,12 +123,16 @@ impl Material {
   }
 }
 
+/// Indexed triangle list on the CPU.
 pub struct Geometry {
+  /// Vertex positions.
   pub vertices: Vec<[f32; 3]>,
+  /// Triangle indices into `vertices`, three per triangle, CCW front faces.
   pub indices: Vec<u32>,
 }
 
 impl Geometry {
+  /// Triangulates any [`genmesh`] generator (e.g. `IcoSphere`, `Cube`).
   pub fn from_genmesh<T, P>(primitive: &T) -> Self
   where
     P: EmitTriangles<Vertex = usize>,
@@ -123,6 +150,22 @@ impl Geometry {
     Geometry { vertices, indices }
   }
 
+  /// Box centred on the origin with `[width, height, depth]` along X, Y, Z.
+  ///
+  /// Use this for non-uniform shapes: [`Group`](crate::core::Group)
+  /// transforms only support uniform scale.
+  pub fn cuboid([width, height, depth]: [f32; 3]) -> Self {
+    let mut geometry = Self::from_genmesh(&genmesh::generators::Cube::new());
+    for v in geometry.vertices.iter_mut() {
+      // Cube spans -1..1, so scale by half-extents.
+      v[0] *= width / 2.;
+      v[1] *= height / 2.;
+      v[2] *= depth / 2.;
+    }
+    geometry
+  }
+
+  /// Square in the XZ plane, facing +Y, spanning `-half_size..half_size`.
   pub fn plane(half_size: f32) -> Self {
     let s = half_size;
     let vertices = vec![[-s, 0., -s], [s, 0., -s], [s, 0., s], [-s, 0., s]];
@@ -130,7 +173,15 @@ impl Geometry {
     Geometry { vertices, indices }
   }
 
-  //vibe coded
+  /// Loads every mesh primitive from a binary glTF (`.glb`).
+  ///
+  /// Returns one `(geometry, material, transform)` per primitive, with node
+  /// transforms flattened to model space. Uses the default scene (or all
+  /// scenes). Only embedded buffers/images are supported; external URIs load
+  /// as empty. Materials use the PBR base color factor and texture only.
+  ///
+  /// # Errors
+  /// If the data isn't valid glTF.
   pub fn from_gltf(data: &[u8]) -> Result<Vec<(Self, Material, Similarity3<f32>)>, gltf::Error> {
     let gltf::Gltf { document, blob } = gltf::Gltf::from_slice(data)?;
 
@@ -176,6 +227,8 @@ impl Geometry {
   }
 }
 
+/// Recursively appends `node`'s primitives (and its children's) to `out`,
+/// composing transforms with `parent_transform`.
 fn collect_node(
   node: &gltf::Node<'_>,
   parent_transform: &Matrix4<f32>,
@@ -237,6 +290,8 @@ fn collect_node(
   }
 }
 
+/// Splits an affine matrix into translation, rotation and a uniform scale
+/// (average of the axis scales; non-uniform scale is approximated).
 fn decompose_matrix(m: &Matrix4<f32>) -> (Translation3<f32>, UnitQuaternion<f32>, f32) {
   let translation = Translation3::new(m[(0, 3)], m[(1, 3)], m[(2, 3)]);
   let scale = {
@@ -260,24 +315,41 @@ fn decompose_matrix(m: &Matrix4<f32>) -> (Translation3<f32>, UnitQuaternion<f32>
   (translation, rotation, scale)
 }
 
+/// GPU resources for one drawable: vertex/index buffers, per-mesh uniforms
+/// and texture bindings. Unused buffers (e.g. colors on a textured mesh) are empty.
 pub struct Mesh {
+  /// Number of vertices.
   pub vertext_count: u32,
+  /// Number of indices passed to `draw_indexed`.
   pub index_count: u32,
+  /// Selects pipeline and shader branch.
   pub material_type: MaterialType,
+  /// Base color / tint written to uniforms.
   pub color: Color,
 
+  /// Positions, `vec3<f32>` per vertex (slot 0).
   pub vertex_buffer: GpuBuffer,
+  /// `u32` triangle indices.
   pub index_buffer: GpuBuffer,
+  /// Per-vertex RGB (slot 1, default pipeline).
   pub vertex_colors: GpuBuffer,
 
+  /// 96 bytes: MVP matrix, color, material type (bind group 0).
   pub uniform_buffer: GpuBuffer,
+  /// Binds `uniform_buffer`.
   pub uniform_bind_group: GpuBindGroup,
 
+  /// Per-vertex UVs (slot 2, or slot 1 in the cube map pipeline).
   pub texture_coordinates: GpuBuffer,
+  /// Sampler + texture view (bind group 1). A 1×1 placeholder if untextured.
   pub texture_bind_group: GpuBindGroup,
 }
 
 impl Mesh {
+  /// Uploads `geometry` and `material` to the GPU, fetching/decoding any textures.
+  ///
+  /// # Errors
+  /// If a texture fails to fetch or decode.
   pub async fn new(
     renderer: &Renderer,
     geometry: &Geometry,
@@ -285,7 +357,7 @@ impl Mesh {
   ) -> Result<Self, JsValue> {
     let device = renderer.device();
     let pipeline = if material.material_type == MaterialType::CubeMap {
-      renderer.pipeline_cubebox()
+      renderer.pipeline_cubemap()
     } else {
       renderer.pipeline()
     };

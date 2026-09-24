@@ -1,7 +1,14 @@
-use crate::iter_to_array;
-use crate::mesh::MaterialType;
-use crate::scene::Scene;
-use crate::viewport::Viewport;
+//! WebGPU setup, resource helpers and per-frame drawing.
+//!
+//! Two pipelines share one render pass:
+//! - **default** (`shader.wgsl`): color / vertex-color / textured meshes, back-face culled.
+//! - **cube map** (`shader_cube.wgsl`): skybox, front-face culled, drawn
+//!   with camera rotation only so it never moves relative to the eye.
+
+use crate::utils::iter_to_array;
+use crate::core::MaterialType;
+use crate::core::Scene;
+use crate::core::Viewport;
 use gloo_utils::format::JsValueSerdeExt;
 use gloo_utils::window;
 use js_sys::ArrayBuffer;
@@ -19,24 +26,36 @@ use web_sys::{
   GpuPrimitiveTopology, GpuRenderPassColorAttachment, GpuRenderPassDepthStencilAttachment,
   GpuRenderPassDescriptor, GpuRenderPipeline, GpuRenderPipelineDescriptor, GpuSampler,
   GpuSamplerDescriptor, GpuShaderModuleDescriptor, GpuStoreOp, GpuTexture, GpuTextureDescriptor,
-  GpuTextureDimension, GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout,
+  GpuTextureFormat, GpuVertexAttribute, GpuVertexBufferLayout,
   GpuVertexFormat, GpuVertexState, HtmlCanvasElement, ImageBitmap, Response,
 };
 
+/// Owns the canvas, GPU device, pipelines and render targets.
 pub struct Renderer {
+  /// Full-window canvas being drawn to.
   canvas: HtmlCanvasElement,
+  /// WebGPU context of `canvas`; provides the swap-chain texture.
   context: GpuCanvasContext,
+  /// Logical GPU device.
   device: GpuDevice,
+  /// Default mesh pipeline.
   pipeline: GpuRenderPipeline,
-  pipeline_cubebox: GpuRenderPipeline,
+  /// Skybox (cube map) pipeline.
+  pipeline_cubemap: GpuRenderPipeline,
+  /// Depth/stencil target sized to the canvas. Kept alive for `depth_attachment`.
   depth_texture: GpuTexture,
+  /// Color attachment; its view is swapped each frame.
   color_attachment: GpuRenderPassColorAttachment,
+  /// Depth attachment, cleared each frame.
   depth_attachment: GpuRenderPassDepthStencilAttachment,
+  /// Reused render pass descriptor.
   render_pass_descriptor: GpuRenderPassDescriptor,
+  /// Shared linear, repeating texture sampler.
   sampler: GpuSampler,
 }
 
 impl Renderer {
+  /// Creates a `Depth24plusStencil8` texture and a clearing attachment for it.
   fn create_depth_texture(
     device: &GpuDevice,
     width: u32,
@@ -63,6 +82,11 @@ impl Renderer {
       .stencil_store_op(GpuStoreOp::Store);
     (depth_texture, depth_attachment)
   }
+  /// Creates a window-sized canvas (not yet attached to the DOM), requests a
+  /// GPU device and builds both pipelines.
+  ///
+  /// # Errors
+  /// If WebGPU is unsupported or adapter/device/context acquisition fails.
   pub async fn new() -> Result<Self, JsValue> {
     let canvas = window()
       .document()
@@ -104,7 +128,7 @@ impl Renderer {
     let mut render_pass_descriptor =
       GpuRenderPassDescriptor::new(&iter_to_array(&[JsValue::from(&color_attachment)]));
     render_pass_descriptor.depth_stencil_attachment(&depth_attachment);
-    let (pipeline, pipeline_cubebox) = {
+    let (pipeline, pipeline_cubemap) = {
       let shader =
         device.create_shader_module(&GpuShaderModuleDescriptor::new(include_str!("shader.wgsl")));
       let position_attribute_description =
@@ -130,7 +154,7 @@ impl Renderer {
       fragment_state.entry_point("fs_main");
       let pipeline = device.create_render_pipeline(
         GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
-          .label("Defualt Render pipeline")
+          .label("Default render pipeline")
           .fragment(&fragment_state)
           .primitive(
             GpuPrimitiveState::new()
@@ -164,7 +188,7 @@ impl Renderer {
       fragment_state.entry_point("fs_main");
       let pipeline_cubemap = device.create_render_pipeline(
         GpuRenderPipelineDescriptor::new(&"auto".into(), &vertex_state)
-          .label("Cubemap Render pipeline")
+          .label("Cube map render pipeline")
           .fragment(&fragment_state)
           .primitive(
             GpuPrimitiveState::new()
@@ -193,26 +217,33 @@ impl Renderer {
       depth_attachment,
       color_attachment,
       pipeline,
-      pipeline_cubebox,
+      pipeline_cubemap,
       render_pass_descriptor,
       sampler,
     })
   }
+  /// Shared linear, repeating sampler.
   pub fn texture_sampler(&self) -> &GpuSampler {
     &self.sampler
   }
+  /// The canvas being rendered to.
   pub fn canvas(&self) -> &HtmlCanvasElement {
     &self.canvas
   }
+  /// The GPU device, for creating resources.
   pub fn device(&self) -> &GpuDevice {
     &self.device
   }
+  /// Default mesh pipeline (for bind group layouts).
   pub fn pipeline(&self) -> &GpuRenderPipeline {
     &self.pipeline
   }
-  pub fn pipeline_cubebox(&self) -> &GpuRenderPipeline {
-    &self.pipeline_cubebox
+  /// Cube map pipeline (for bind group layouts).
+  pub fn pipeline_cubemap(&self) -> &GpuRenderPipeline {
+    &self.pipeline_cubemap
   }
+  /// Draws every mesh in `scene` from `viewport` in a single render pass,
+  /// writing each mesh's uniforms (MVP, color, material type) first.
   pub fn render(&mut self, scene: &Scene, viewport: &Viewport) {
     let meshes = scene.meshes();
     let queue = self.device.queue();
@@ -238,7 +269,7 @@ impl Renderer {
     pass_encoder.set_scissor_rect(0, 0, self.canvas.width(), self.canvas.height());
     for (mesh, transform) in meshes.iter() {
       if mesh.material_type == MaterialType::CubeMap {
-        pass_encoder.set_pipeline(&self.pipeline_cubebox);
+        pass_encoder.set_pipeline(&self.pipeline_cubemap);
       } else {
         pass_encoder.set_pipeline(&self.pipeline);
       }
@@ -279,6 +310,7 @@ impl Renderer {
     pass_encoder.end();
     queue.submit(&iter_to_array(&[command_encoder.finish()]));
   }
+  /// Resizes the canvas and depth texture to the current window size.
   pub fn resize(&mut self) {
     let (width, height) = get_window_dimension();
     self.canvas.set_width(width);
@@ -287,6 +319,7 @@ impl Renderer {
     self.depth_texture = depth_texture;
     self.depth_attachment = depth_attachment;
   }
+  /// Creates a vertex buffer initialised with `data` (size padded to 4 bytes).
   pub fn create_buffer(&self, data: &[f32]) -> GpuBuffer {
     let byte_len = data.len() * 4;
     let size = (byte_len + 3) & !3;
@@ -298,6 +331,7 @@ impl Renderer {
     buffer.unmap();
     buffer
   }
+  /// Creates a `u32` index buffer initialised with `data`.
   pub fn create_index_buffer(&self, data: &[u32]) -> GpuBuffer {
     let size = data.len() * 4;
     let size = (size + 3) & !3;
@@ -313,19 +347,21 @@ impl Renderer {
     buffer.unmap();
     buffer
   }
+  /// Creates an RGBA8 texture with `num_images` array layers (6 for a cube map).
   pub fn create_texture(&self, rect: &Rect, num_images: u32) -> GpuTexture {
-    let mut desc = GpuTextureDescriptor::new(
+    let desc = GpuTextureDescriptor::new(
       GpuTextureFormat::Rgba8unorm,
       &iter_to_array([rect.width, rect.height, num_images]),
       gpu_texture_usage::TEXTURE_BINDING
         | gpu_texture_usage::COPY_DST
         | gpu_texture_usage::RENDER_ATTACHMENT,
     );
-    if num_images == 6 {
-      desc.dimension(GpuTextureDimension::N2d);
-    }
     self.device.create_texture(&desc)
   }
+  /// Fetches and decodes the image at URL `src`.
+  ///
+  /// # Errors
+  /// If the fetch or decode fails.
   pub async fn create_bitmap(src: &str) -> Result<(ImageBitmap, Rect), JsValue> {
     let res = JsFuture::from(window().fetch_with_str(src))
       .await?
@@ -334,6 +370,10 @@ impl Renderer {
     Self::bitmap_from_blob(blob).await
   }
 
+  /// Decodes encoded image `bytes` (PNG, JPEG, …).
+  ///
+  /// # Errors
+  /// If the bytes aren't a decodable image.
   pub async fn create_bitmap_from_bytes(bytes: &[u8]) -> Result<(ImageBitmap, Rect), JsValue> {
     let uint8 = Uint8Array::from(bytes);
     let parts = js_sys::Array::new();
@@ -342,6 +382,7 @@ impl Renderer {
     Self::bitmap_from_blob(blob).await
   }
 
+  /// Decodes `blob` into an [`ImageBitmap`] and its size.
   async fn bitmap_from_blob(blob: Blob) -> Result<(ImageBitmap, Rect), JsValue> {
     let bitmap = JsFuture::from(window().create_image_bitmap_with_blob(&blob)?).await?;
     let image = bitmap.dyn_into::<ImageBitmap>()?;
@@ -349,6 +390,10 @@ impl Renderer {
     Ok((image, Rect { width, height }))
   }
 
+  /// Fetches URL `src` as raw bytes (e.g. a `.glb`).
+  ///
+  /// # Errors
+  /// If the request fails.
   pub async fn fetch_bytes(src: &str) -> Result<Vec<u8>, JsValue> {
     let res = JsFuture::from(window().fetch_with_str(src))
       .await?
@@ -360,6 +405,7 @@ impl Renderer {
   }
 }
 
+/// Browser window inner `(width, height)` in CSS pixels.
 pub fn get_window_dimension() -> (u32, u32) {
   let window = window();
   (
@@ -376,22 +422,32 @@ pub fn get_window_dimension() -> (u32, u32) {
   )
 }
 
+/// Linear RGBA color, components in `0.0..=1.0`.
+/// Serializes to a WebGPU `GPUColor` dictionary.
 #[derive(Serialize, Clone, Copy, Debug)]
 pub struct Color {
+  /// Red.
   pub r: f32,
+  /// Green.
   pub g: f32,
+  /// Blue.
   pub b: f32,
+  /// Alpha.
   pub a: f32,
 }
 
 impl Color {
-  pub fn rgb(r: f32, g: f32, b: f32) -> Self {
+  /// Opaque color.
+  pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
     Self { r, g, b, a: 1. }
   }
 }
 
+/// Pixel dimensions of an image or texture.
 #[derive(Serialize)]
 pub struct Rect {
+  /// Width in pixels.
   pub width: u32,
+  /// Height in pixels.
   pub height: u32,
 }
